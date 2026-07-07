@@ -1,0 +1,73 @@
+# ============================================================================
+# GATE RUBRICS  —  SUMMATIVE. High-stakes. Calibrated before use.
+# ----------------------------------------------------------------------------
+# Editing ANY rubric here invalidates its calibration for that version:
+#   1. Bump the rubric `version`.
+#   2. Re-run golden-set calibration (docs/02-measurement-model.md#calibration).
+#   3. Runtime refuses to summatively score with an uncalibrated version
+#      (progression-rules.yaml -> calibration.required_for_summative).
+#
+# Each criterion maps to competency ids and has 0-100 anchors. Scores here feed
+# the `gate` source of the composite and the sync side of the integrity delta.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+grader:
+  model: sonnet
+  passes: 2                # 2-pass for variance control
+  require_justification: true   # 1-line justification per criterion, stored for audit
+
+rubrics:
+  # ---- GATE 1: Live roleplay — Examiner plays a sceptical MSME owner ----
+  gate-1-roleplay:
+    turns: 3               # 3-turn live conversation
+    persona_pool_ref: examiner   # personas defined in prompts/examiner.md (rotated, no repeats in a batch)
+    criteria:
+      - maps_to: XC.COMMUNICATION
+        weight: 0.30
+        anchors: { fail: "Wrong register/language; confusing.", pass: "Clear, in owner's language.", strong: "Warm, persuasive, adapts in real time." }
+      - maps_to: XC.OBJECTION
+        weight: 0.30
+        anchors: { fail: "Freezes or over-promises.", pass: "Calm, addresses real concern, no fabrication.", strong: "Reframes objection into trust." }
+      - maps_to: L1.GENAI.MODEL_JUDGMENT
+        weight: 0.20
+        anchors: { fail: "Can't explain what AI would actually do.", pass: "Accurate, concrete value explained.", strong: "Right-sized, honest about limits." }
+      - maps_to: XC.INTEGRITY
+        weight: 0.20
+        anchors: { fail: "Scripted; can't handle a novel follow-up.", pass: "Reasons live, consistent with prep.", strong: "Handles curveballs unprompted." }
+
+  # ---- GATE 2: Project review — learner presents a completed automation ----
+  gate-2-project:
+    criteria:
+      - maps_to: L3.AUTO.N8N
+        weight: 0.35
+        anchors: { fail: "Doesn't work / can't adapt it.", pass: "Working automation for a real need.", strong: "Robust, error-handled, documented." }
+      - maps_to: L3.AUTO.DELIVERY
+        weight: 0.20
+        anchors: { fail: "Incomplete / untested.", pass: "Complete, tested, to spec.", strong: "Early, self-checked, risks surfaced." }
+      - maps_to: L4.DOMAIN.SOLUTION
+        weight: 0.25
+        anchors: { fail: "Generic, not fitted to domain.", pass: "Fitted to domain constraints.", strong: "Measurable, high-leverage intervention." }
+      - maps_to: XC.INTEGRITY
+        weight: 0.20
+        anchors: { fail: "Can't explain their own build.", pass: "Explains choices in own words.", strong: "Teaches the reasoning." }
+
+  # ---- GATE 3: Placement defence — final viva ----
+  gate-3-defence:
+    criteria:
+      - maps_to: L4.DOMAIN.DISCOVERY
+        weight: 0.25
+        anchors: { fail: "Jumps to solution.", pass: "Frames the real problem.", strong: "Uncovers unspoken need." }
+      - maps_to: L4.DOMAIN.MEASUREMENT
+        weight: 0.25
+        anchors: { fail: "Can't say if work helped.", pass: "Baseline + success metric defined.", strong: "Every task tied to an honest delta." }
+      - maps_to: XC.COMMUNICATION
+        weight: 0.20
+        anchors: { fail: "Unclear under pressure.", pass: "Clear, composed.", strong: "Compelling, client-ready." }
+      - maps_to: XC.PROBLEM_SOLVING
+        weight: 0.15
+        anchors: { fail: "Needs answers handed over.", pass: "Reasons from partial info.", strong: "Structures ambiguity fast." }
+      - maps_to: XC.INTEGRITY
+        weight: 0.15
+        anchors: { fail: "Inconsistent with submitted work.", pass: "Consistent, owns it.", strong: "Handles novel follow-ups." }

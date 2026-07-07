@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d2d.dev/schema/learner-record.schema.json",
+  "title": "Learner Record",
+  "description": "The current-state projection for one learner, derived (recomputable) from the append-only evidence event log. Not a source of truth — the events are. This is the read model powering the operator dashboard and the composite.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["learner_id", "status", "current_level", "mastery", "composite"],
+  "properties": {
+    "learner_id": { "type": "string" },
+    "profile": {
+      "type": "object",
+      "properties": {
+        "name":      { "type": "string" },
+        "language":  { "type": "string" },
+        "domain_track": { "type": "string", "description": "One of competency-framework L4.domain_tracks." },
+        "cohort":    { "type": "string" }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "at_risk", "warning", "flagged_integrity", "removed", "promoted"],
+      "description": "Lifecycle state, driven by progression-rules.yaml (enforced by the workflow, not an LLM)."
+    },
+    "current_level": { "type": "string", "description": "L1..L4 from the framework." },
+    "program_day":   { "type": "integer", "minimum": 0, "description": "Days since Day 0 (90-day clock)." },
+    "mastery": {
+      "type": "object",
+      "description": "Per-competency estimate rolled up from evidence. Key = stable competency id.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "estimate":     { "type": "number", "minimum": 0, "maximum": 100 },
+          "at_threshold": { "type": "boolean" },
+          "evidence_count": { "type": "integer" },
+          "last_updated": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "description": "Per-gate status. Key = gate id from progression-rules.yaml.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "attempts":  { "type": "integer" },
+          "best_score": { "type": "number" },
+          "passed":    { "type": "boolean" }
+        }
+      }
+    },
+    "composite": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base":                 { "type": "number" },
+        "integrity_multiplier": { "type": "number" },
+        "final":                { "type": "number" },
+        "rank_band":            { "type": "string" },
+        "formula_version":      { "type": "string", "description": "composite-formula.yaml version used." }
+      }
+    },
+    "integrity_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "competency_id": { "type": "string" },
+          "delta":         { "type": "number" },
+          "status":        { "type": "string", "enum": ["open", "cleared", "upheld"] },
+          "resolved_by":   { "type": "string", "description": "Operator id (human resolves every flag)." }
+        }
+      }
+    },
+    "engagement": {
+      "type": "object",
+      "properties": {
+        "streak_days":    { "type": "integer" },
+        "last_active":    { "type": "string", "format": "date-time" },
+        "window_open":    { "type": "boolean" },
+        "missed_live_sessions": { "type": "integer" }
+      }
+    }
+  }
+}

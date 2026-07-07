@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d2d.dev/schema/evidence-event.schema.json",
+  "title": "Evidence Event",
+  "description": "One immutable measurement signal in the Learner Record Store (append-only). Every quiz, task, peer review, live session, gate viva, and diagnostic emits one or more of these. This log IS the audit trail, the analytics source, and the composite input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "learner_id", "timestamp", "source", "competency_id",
+    "activity_type", "modality", "stakes", "score", "scale_max",
+    "grader", "framework_version"
+  ],
+  "properties": {
+    "event_id":      { "type": "string", "description": "Unique, immutable." },
+    "learner_id":    { "type": "string" },
+    "timestamp":     { "type": "string", "format": "date-time" },
+    "source":        { "type": "string", "description": "Emitting agent/service, e.g. trainer, examiner, peer_mentor, live_session_tracker, diagnostic." },
+    "competency_id": { "type": "string", "description": "Stable id from competency-framework.yaml, e.g. L1.GENAI.PROMPTING." },
+    "activity_type": { "type": "string", "enum": ["quiz", "task", "peer_review", "live_session", "gate_viva", "diagnostic"] },
+    "modality":      { "type": "string", "enum": ["async", "sync"], "description": "async = cheatable (quiz/task); sync = live viva. Drives the integrity delta." },
+    "stakes":        { "type": "string", "enum": ["formative", "summative"] },
+    "score":         { "type": "number", "minimum": 0, "description": "Normalized against scale_max." },
+    "scale_max":     { "type": "number", "exclusiveMinimum": 0 },
+    "weight_hint":   { "type": "number", "description": "Optional per-event weight override for rollup." },
+    "grader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":   { "type": "string", "enum": ["deterministic", "llm", "human"] },
+        "model":  { "type": "string", "description": "e.g. haiku, sonnet (when type=llm)." },
+        "passes": { "type": "integer", "minimum": 1 },
+        "justification": { "type": "string", "description": "Required for summative; stored for appeal." }
+      }
+    },
+    "framework_version": { "type": "string", "description": "competency-framework.yaml version at scoring time — makes the score reproducible." },
+    "rubric_version":    { "type": "string", "description": "Rubric version used (summative)." },
+    "calibration_id":    { "type": "string", "description": "Which calibration run validated this rubric version (summative)." },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mismatch_delta": { "type": "number", "description": "async_score - sync_score for this competency (positive = suspicious)." },
+        "flags":          { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Links to submission/media in object store — a human can always re-check."
+    },
+    "tags": { "type": "array", "items": { "type": "string" }, "description": "e.g. diagnostic." }
+  }
+}

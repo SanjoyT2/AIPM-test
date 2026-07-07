@@ -1,0 +1,66 @@
+# ============================================================================
+# WHATSAPP TEMPLATES  —  for messages sent OUTSIDE the 24h window.
+# ----------------------------------------------------------------------------
+# Inside the window (learner messaged within 24h) agents send free-form text and
+# do NOT need these. These are for proactive sends when the window is CLOSED —
+# chiefly the re-engagement / silence ladder, which is exactly where the
+# "message us daily" trick fails (silent learners let the window lapse).
+#
+# IMPORTANT: every template here must be submitted to and APPROVED by Meta (via
+# 11za) before use. `status` tracks that. Keep {{placeholders}} minimal — Meta
+# scrutinizes them. Hindi-first with English fallback per the Bharat theme.
+# Editable; bump version on change and re-submit changed templates for approval.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+defaults:
+  language: hi
+  category: UTILITY        # UTILITY (course/service) vs MARKETING — affects approval + cost
+
+templates:
+  # ---- Daily start nudge (only if learner hasn't self-initiated by cutoff) ----
+  - name: daily_start_nudge
+    status: draft
+    category: UTILITY
+    trigger: learner_not_initiated_by_0900
+    body_hi: "Namaste {{1}} 🌅 Aaj ka lesson ready hai. Shuru karne ke liye 'START' bhejein."
+    body_en: "Good morning {{1}} 🌅 Today's lesson is ready. Reply 'START' to begin."
+
+  # ---- Silence ladder (progression-rules.yaml -> engagement) ----
+  - name: nudge_day2
+    status: draft
+    category: UTILITY
+    trigger: inactive_2_days
+    body_hi: "{{1}}, do din se aapko miss kar rahe hain. Aaj 10 min ka lesson? 'START' bhejein 🔥"
+    body_en: "{{1}}, we've missed you for 2 days. 10-minute lesson today? Reply 'START' 🔥"
+
+  - name: nudge_day3_streak
+    status: draft
+    category: UTILITY
+    trigger: inactive_3_days
+    body_hi: "Aapki streak {{1}} din ki thi 💪 Wapas aa jao — ek lesson se dobara shuru. 'START'."
+    body_en: "Your streak was {{1}} days 💪 Come back — one lesson restarts it. Reply 'START'."
+
+  - name: warning_day5
+    status: draft
+    category: UTILITY
+    trigger: inactive_5_days
+    body_hi: "{{1}}, 5 din ho gaye. 90-din ki limit chal rahi hai — progress bachane ke liye aaj lesson lein."
+    body_en: "{{1}}, it's been 5 days. The 90-day clock is running — take today's lesson to protect your progress."
+
+  # ---- Gate reminder (scheduled, may fall outside window) ----
+  - name: gate_reminder
+    status: draft
+    category: UTILITY
+    trigger: gate_scheduled_tomorrow
+    body_hi: "Kal aapka {{1}} gate hai (Saturday). Taiyari ke liye 'PREP' bhejein."
+    body_en: "Your {{1}} gate is tomorrow (Saturday). Reply 'PREP' to get ready."
+
+  # ---- Milestone celebration (only if window closed; else Motivator sends free-form) ----
+  - name: milestone_levelup
+    status: draft
+    category: UTILITY
+    trigger: level_cleared
+    body_hi: "🎉 Badhaai {{1}}! Aapne {{2}} clear kiya. Agla level ready hai — 'START' bhejein."
+    body_en: "🎉 Congrats {{1}}! You cleared {{2}}. The next level is ready — reply 'START'."

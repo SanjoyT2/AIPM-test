@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d2d.dev/schema/competency-framework.schema.json",
+  "title": "Competency Framework",
+  "description": "Validates config/competency-framework.yaml. Enforces the editability invariants: stable ids, versioning, and that competency weights within a level sum to ~1.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "effective_from", "scale", "levels"],
+  "properties": {
+    "version":        { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "effective_from": { "type": "string", "format": "date" },
+    "scale": {
+      "type": "object",
+      "required": ["min", "max"],
+      "properties": {
+        "min":   { "type": "number" },
+        "max":   { "type": "number" },
+        "bands": { "type": "object" }
+      }
+    },
+    "levels": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/level" }
+    },
+    "cross_cutting": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/competency" }
+    }
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "competencies"],
+      "properties": {
+        "id":            { "type": "string", "pattern": "^L[0-9]+$" },
+        "name":          { "type": "string" },
+        "summary":       { "type": "string" },
+        "domain_tracks": { "type": "array", "items": { "type": "string" } },
+        "competencies": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/competency" }
+        }
+      }
+    },
+    "competency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "mastery_threshold"],
+      "properties": {
+        "id":               { "type": "string", "description": "STABLE key — never reuse or repurpose.", "pattern": "^[A-Z0-9_.]+$" },
+        "name":             { "type": "string" },
+        "weight_in_level":  { "type": "number", "minimum": 0, "maximum": 1, "description": "Weights within a level should sum to 1.0 (checked by the config linter, not pure JSON Schema)." },
+        "mastery_threshold": { "type": "number", "minimum": 0, "maximum": 100 },
+        "anchors": {
+          "type": "object",
+          "description": "Rubric anchors. novice/competent/expert (levels) or fail/pass/strong (as used elsewhere).",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,75 @@
+# ============================================================================
+# PROGRESSION RULES  —  timers, gate placement, attendance, removals, calibration.
+# ----------------------------------------------------------------------------
+# These are enforced by the durable workflow (ADR-001), NOT by an LLM.
+# Every threshold here is editable; bump `version` on change.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+# Overall clock
+program:
+  max_days_to_complete: 90        # 90-day cap to clear all levels + gates
+  levels_order: [L1, L2, L3, L4]  # references competency-framework.yaml level ids
+
+# Which gate runs after which level. Move gates by editing this — the framework
+# file doesn't need to change. 3 gates over 4 levels (L1 has no gate by default).
+gates:
+  - id: GATE_1
+    after_level: L2
+    type: live_roleplay          # Examiner plays a sceptical MSME owner
+    rubric: gate-1-roleplay      # -> rubrics/gates.yaml
+    day_of_week: saturday
+  - id: GATE_2
+    after_level: L3
+    type: project_review         # learner presents a completed automation project
+    rubric: gate-2-project
+    day_of_week: saturday
+  - id: GATE_3
+    after_level: L4
+    type: placement_defence      # final viva — composure, readiness
+    rubric: gate-3-defence
+    day_of_week: saturday
+
+# Level advancement — deterministic checks.
+advancement:
+  require_all_competencies_at_threshold: true   # every competency in the level >= its mastery_threshold
+  allow_one_below_by: 0                          # grace: allow N competencies up to X below threshold (0 = strict)
+  gate_pass_min_score: 60                        # summative gate must score >= this to pass
+  gate_retries_allowed: 3                        # per gate
+  gate_fail_3x_same_gate: human_review           # 3rd fail on same gate -> operator queue (likely removal)
+
+# Live sessions (mandatory weekly). Feeds sync-modality evidence + integrity.
+live_sessions:
+  cadence: weekly
+  miss_warning_at: 2               # miss 2 -> warning
+  miss_removal_at: 4               # miss 4 -> removal (operator-confirmed)
+  # Tier-3 connectivity fairness: a flagged connectivity drop does NOT count as an absence.
+  connectivity_grace: true
+
+# Engagement / silence ladder (see docs/03-daily-loop.md). Days since last activity.
+engagement:
+  nudge_at_days: 2
+  second_nudge_at_days: 3
+  warning_at_days: 5
+  escalate_at_days: 7              # -> operator queue, likely removal
+  streak_defines_engagement: true # engagement source in composite driven by streak
+
+# Integrity handling (works with composite-formula.yaml integrity curve).
+integrity:
+  unresolved_flag_blocks_promotion: true   # cannot be promoted with an open integrity flag
+  operator_must_resolve: true              # human clears/upholds every flag
+
+# Calibration gate — protects summative scoring (see docs/02-measurement-model.md).
+calibration:
+  required_for_summative: true             # runtime refuses to summatively score with an uncalibrated rubric version
+  min_agreement: 0.75                      # LLM-vs-human agreement bar (e.g. weighted kappa) before a rubric goes live
+  recalibrate_on_rubric_change: true
+
+# Promotion checklist — deterministic (mirrors the concept's Promotion Bot).
+promotion:
+  require_all_levels_cleared: true
+  require_all_gates_passed: true
+  require_no_open_integrity_flags: true
+  require_clean_attendance: true           # no unresolved live-session warnings
+  time_to_promote_target_hours: 48

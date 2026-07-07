@@ -1,0 +1,60 @@
+# ============================================================================
+# COMPOSITE SCORE FORMULA  —  deterministic. No LLM ever touches this.
+# ----------------------------------------------------------------------------
+# The final score that drives the leaderboard, promotion, and the credential.
+# Fully editable, but exact and reproducible by design (see ADR-003).
+#
+# HOW TO EDIT SAFELY:
+#   • `source_weights` MUST sum to 1.0 (schema-validated).
+#   • Bump `version` on any change. Each computed score records this version,
+#     so past leaderboards remain reproducible.
+#   • The integrity multiplier is applied AFTER the weighted base — it can only
+#     hold a score down, never inflate it.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+# base = Σ ( source_weights[s] × normalized_score[s] )   for s in sources
+# Each source score is a 0-100 rollup from evidence events of that type,
+# weighted by competency importance and recency (see rollup: below).
+source_weights:
+  gate:          0.50   # summative gate vivas — weighted heavy (the real signal)
+  quiz:          0.15   # formative knowledge checks
+  task:          0.15   # hands-on deliverables (rubric-graded)
+  peer_review:   0.08   # quality of reviews this learner GAVE (learning-by-teaching)
+  live_session:  0.07   # participation + explanation quality in weekly live
+  engagement:    0.05   # streak / consistency / responsiveness
+# ^ must sum to 1.0
+
+# How each source's 0-100 is rolled up from its evidence events.
+rollup:
+  recency_half_life_days: 21   # older evidence decays; set high to disable decay
+  competency_weighting: true   # weight by competency weight_in_level from the framework
+  drop_lowest_n: 0             # optionally forgive N worst formative items (0 = off)
+
+# ---------------------------------------------------------------------------
+# INTEGRITY MULTIPLIER  — final = base × multiplier
+# Derived from the async-vs-sync delta (see docs/02-measurement-model.md).
+# `delta` = async_score − sync_score for the same competency (positive = suspicious:
+# looks strong on cheatable async work, weak when explaining it live).
+# ---------------------------------------------------------------------------
+integrity:
+  # Piecewise: worst unresolved competency delta → multiplier applied to composite.
+  # Editable thresholds. A resolved flag (human cleared it) sets multiplier back to 1.0.
+  curve:
+    - { max_delta: 10,  multiplier: 1.00 }   # within noise — clean
+    - { max_delta: 20,  multiplier: 0.95 }   # minor mismatch
+    - { max_delta: 35,  multiplier: 0.80 }   # notable — enters review queue
+    - { max_delta: 999, multiplier: 0.50 }   # severe — hard flag, likely investigation
+  review_queue_threshold_delta: 20   # at/above this, route to operator regardless of multiplier
+
+# ---------------------------------------------------------------------------
+# CREDENTIAL TIERS (D2D Rank) — mapped from the FINAL composite.
+# Editable bands. Only affects the rank label, not progression (that's in
+# progression-rules.yaml).
+# ---------------------------------------------------------------------------
+rank_bands:
+  - { id: L1_RANK, name: "Deployment Ready — Distinction", min_final: 85 }
+  - { id: L2_RANK, name: "Deployment Ready — Merit",       min_final: 75 }
+  - { id: L3_RANK, name: "Deployment Ready — Pass",        min_final: 65 }
+  - { id: NOT_READY, name: "Not yet deployment ready",     min_final: 0  }

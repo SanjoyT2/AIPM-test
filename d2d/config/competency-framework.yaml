@@ -1,0 +1,185 @@
+# ============================================================================
+# D2D COMPETENCY FRAMEWORK  —  the definition of "an effective candidate"
+# ----------------------------------------------------------------------------
+# This is the single most important editable file. Everything downstream
+# (mastery, gates, composite, credential) measures against it.
+#
+# HOW TO EDIT SAFELY:
+#   • Bump `version` on any change (evidence records the version that scored it).
+#   • `id:` values are STABLE keys — never reuse or repurpose one. Rename `name:` freely.
+#   • `mastery_threshold` (0-100): score at/above = competency considered mastered.
+#   • `weight_in_level` values within a level should sum to 1.0 (schema-validated).
+#   • Validated by ../schema/competency-framework.schema.json
+#
+# This v0.1 content is a STRAWMAN grounded in the concept (GenAI, Claude, n8n,
+# domain tracks, client-conversation skills). The domain SME should ratify it.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+# Scale used by all rubric anchors and scores.
+scale:
+  min: 0
+  max: 100
+  bands:            # editable labels for reporting
+    novice:     [0, 49]
+    developing: [50, 69]
+    competent:  [70, 84]
+    expert:     [85, 100]
+
+# ---------------------------------------------------------------------------
+# LEVELS  — the training progression. 4 levels, 3 gates (gate placement lives
+# in progression-rules.yaml so you can move gates without touching this file).
+# ---------------------------------------------------------------------------
+levels:
+  - id: L1
+    name: GenAI Foundations
+    summary: Think clearly with a model — prompts, limits, when (not) to trust it.
+    competencies:
+      - id: L1.GENAI.PROMPTING
+        name: Prompt design
+        weight_in_level: 0.40
+        mastery_threshold: 70
+        anchors:
+          novice: One-line prompts; no context or format; accepts first output.
+          competent: Gives role, context, constraints, and desired format; iterates on a bad output.
+          expert: Decomposes a task, sets guardrails, and designs prompts that a non-expert could reuse.
+      - id: L1.GENAI.MODEL_JUDGMENT
+        name: Model selection & limits
+        weight_in_level: 0.30
+        mastery_threshold: 65
+        anchors:
+          novice: Treats the model as always right; unaware of hallucination.
+          competent: Knows when a task needs a stronger model and checks facts before relying on them.
+          expert: Chooses model/approach by cost-latency-accuracy trade-off and explains the choice.
+      - id: L1.GENAI.SAFETY
+        name: Hallucination & verification habits
+        weight_in_level: 0.30
+        mastery_threshold: 65
+        anchors:
+          novice: Copies model output into client work unchecked.
+          competent: Verifies claims and flags uncertainty before delivery.
+          expert: Builds verification into the workflow so errors are caught by default.
+
+  - id: L2
+    name: Claude & the Toolbelt
+    summary: Do real work with Claude, Claude Code, Google AI Studio, structured outputs.
+    competencies:
+      - id: L2.CLAUDE.WORKFLOWS
+        name: Getting work done with Claude
+        weight_in_level: 0.40
+        mastery_threshold: 70
+        anchors:
+          novice: Uses Claude as a chatbot only.
+          competent: Uses Claude for multi-step work — drafting, extracting, structuring.
+          expert: Composes Claude into a repeatable mini-workflow for a business task.
+      - id: L2.TOOLS.STRUCTURED
+        name: Structured outputs & data handling
+        weight_in_level: 0.30
+        mastery_threshold: 65
+        anchors:
+          novice: Free-text only; can't get consistent structure.
+          competent: Gets reliable structured output (tables/JSON) for downstream use.
+          expert: Designs the schema and handles messy real-world inputs gracefully.
+      - id: L2.TOOLS.STUDIO
+        name: Google AI Studio / tooling fluency
+        weight_in_level: 0.30
+        mastery_threshold: 60
+        anchors:
+          novice: Needs step-by-step help to use a new tool.
+          competent: Independently uses studio tools to prototype a solution.
+          expert: Picks the right tool for the job and teaches it to a peer.
+
+  - id: L3
+    name: Automation & Delivery
+    summary: Ship something that runs — n8n, WhatsApp catalog, integrations.
+    competencies:
+      - id: L3.AUTO.N8N
+        name: Workflow automation (n8n)
+        weight_in_level: 0.45
+        mastery_threshold: 70
+        anchors:
+          novice: Can follow a tutorial but can't adapt it.
+          competent: Builds a working automation for a stated business need.
+          expert: Designs a robust automation with error handling and hands-off documentation.
+      - id: L3.AUTO.WHATSAPP
+        name: WhatsApp catalog / business tooling
+        weight_in_level: 0.30
+        mastery_threshold: 65
+        anchors:
+          novice: Manual, one-off changes.
+          competent: Sets up a catalog / broadcast that a shop owner can actually use.
+          expert: Optimizes for the owner's real constraints (language, SKUs, response time).
+      - id: L3.AUTO.DELIVERY
+        name: Delivery reliability
+        weight_in_level: 0.25
+        mastery_threshold: 65
+        anchors:
+          novice: Misses deadlines; work needs rework.
+          competent: Delivers on time to spec, tested.
+          expert: Delivers early, self-checks, and surfaces risks before they bite.
+
+  - id: L4
+    name: Domain Application
+    summary: Apply it to a real MSME domain and defend the outcome. (Track chosen per learner.)
+    domain_tracks: [retail, food_and_beverage, services, manufacturing]  # editable
+    competencies:
+      - id: L4.DOMAIN.DISCOVERY
+        name: Problem discovery
+        weight_in_level: 0.30
+        mastery_threshold: 70
+        anchors:
+          novice: Jumps to a solution without understanding the business.
+          competent: Asks the right questions and frames the real problem.
+          expert: Uncovers the underlying need the owner didn't articulate.
+      - id: L4.DOMAIN.SOLUTION
+        name: Domain solution design
+        weight_in_level: 0.40
+        mastery_threshold: 70
+        anchors:
+          novice: Generic solution not fitted to the domain.
+          competent: Fits a solution to the domain's real constraints and data.
+          expert: Designs a measurable, high-leverage intervention for that business.
+      - id: L4.DOMAIN.MEASUREMENT
+        name: Outcome measurement mindset
+        weight_in_level: 0.30
+        mastery_threshold: 70
+        anchors:
+          novice: Can't say whether the work helped.
+          competent: Defines a baseline and a measurable success metric.
+          expert: Ties every task to a metric and reports honest deltas.
+
+# ---------------------------------------------------------------------------
+# CROSS-CUTTING competencies — measured across ALL levels (esp. in live vivas).
+# These carry the "can they handle a real client conversation" signal and are
+# central to the integrity (async-vs-sync) check.
+# ---------------------------------------------------------------------------
+cross_cutting:
+  - id: XC.COMMUNICATION
+    name: Communication (clarity + language fit)
+    mastery_threshold: 70
+    anchors:
+      novice: Confusing; wrong register for the audience; English-only to a Hindi trader.
+      competent: Clear, in the client's language, appropriately simple.
+      expert: Persuasive, warm, and adjusts tone to the person in real time.
+  - id: XC.OBJECTION
+    name: Objection handling
+    mastery_threshold: 65
+    anchors:
+      novice: Freezes or over-promises when pushed.
+      competent: Stays calm, addresses the real concern, never fabricates.
+      expert: Reframes objections into trust; anchors on the risk-free wedge honestly.
+  - id: XC.PROBLEM_SOLVING
+    name: Problem solving under ambiguity
+    mastery_threshold: 65
+    anchors:
+      novice: Needs the answer handed over.
+      competent: Reasons to a workable answer from partial information.
+      expert: Structures the ambiguity and picks a defensible path quickly.
+  - id: XC.INTEGRITY
+    name: Owns their work (can explain it live)
+    mastery_threshold: 70
+    anchors:
+      novice: Can't explain submitted work in their own words.
+      competent: Explains their reasoning and choices live, consistently with submissions.
+      expert: Teaches the reasoning; handles novel follow-ups without prep.

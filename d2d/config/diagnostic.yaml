@@ -1,0 +1,48 @@
+# ============================================================================
+# DAY-0 DIAGNOSTIC  —  seeds the mastery model for a candidate.
+# ----------------------------------------------------------------------------
+# Phase 1 drops Selection, so there's no seed score and the cohort is unfiltered.
+# This short placement test writes INITIAL per-competency mastery estimates.
+# Low-stakes: evidence emitted with stakes=formative, tagged `diagnostic`.
+#
+# Editable: add/remove items, change mapped competencies, adjust weights.
+# Each item maps to a competency id from competency-framework.yaml.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+settings:
+  channel: whatsapp
+  target_minutes: 15
+  stakes: formative
+  tag: diagnostic
+  seeds_mastery: true          # results initialize the mastery model
+  # A learner initiates ("START DIAGNOSTIC") to open the window, per the daily-loop pattern.
+
+sections:
+  - id: DIAG.GENAI
+    maps_to: [L1.GENAI.PROMPTING, L1.GENAI.MODEL_JUDGMENT, L1.GENAI.SAFETY]
+    style: mcq_plus_short   # deterministic MCQs + one short free-text (LLM-scored, low weight)
+    items: 4
+  - id: DIAG.TOOLS
+    maps_to: [L2.CLAUDE.WORKFLOWS, L2.TOOLS.STRUCTURED]
+    style: mcq_plus_short
+    items: 3
+  - id: DIAG.APTITUDE
+    # Not technical — the concept is explicit: test learning ability, problem-solving,
+    # communication, willingness to work hard.
+    maps_to: [XC.PROBLEM_SOLVING, XC.COMMUNICATION]
+    style: short_scenario   # 1 open scenario, LLM-scored against cross-cutting anchors
+    items: 2
+    example_prompt: >
+      A shop owner says "AI is useless, I've run my shop 30 years." In 3-4 lines,
+      how would you respond? (Answer in the language you're most comfortable in.)
+
+scoring:
+  mcq: deterministic
+  short_free_text:
+    grader: llm
+    model: haiku          # low-stakes; cheap
+    passes: 1
+  # Diagnostic never gates anything and never counts toward the summative composite.
+  contributes_to_composite: false

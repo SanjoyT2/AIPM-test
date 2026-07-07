@@ -1,0 +1,32 @@
+# ============================================================================
+# TASK GRADING RUBRIC  —  FORMATIVE. Low-stakes, fast, generous.
+# ----------------------------------------------------------------------------
+# Grades daily hands-on tasks. Feeds the `task` source of the composite at low
+# weight. Single-pass Haiku/Sonnet; NOT gated by calibration (formative).
+# Editable; bump version on change. Not high-stakes, so no re-calibration needed.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+grader:
+  model: sonnet          # tasks need judgment; still single-pass (formative)
+  passes: 1
+  tone: coaching         # feedback should teach, not just score
+  require_feedback: true # 2-3 lines of actionable feedback returned to the learner
+
+# Generic criteria applied to any task; the daily task declares which competency
+# it primarily targets (maps_to) and that competency gets the heavier share.
+criteria:
+  - id: CORRECTNESS
+    weight: 0.40
+    anchors: { fail: "Doesn't meet the task's core ask.", pass: "Meets the ask.", strong: "Exceeds — handles edge cases." }
+  - id: APPLICATION
+    weight: 0.35
+    anchors: { fail: "Textbook, not applied.", pass: "Applied to the given business case.", strong: "Insightful, real-world-ready." }
+  - id: CLARITY
+    weight: 0.25
+    anchors: { fail: "Hard to follow.", pass: "Clear and organized.", strong: "Client-presentable." }
+
+# Modality is async → this evidence is the async side of the integrity delta.
+modality: async
+stakes: formative
