@@ -1,0 +1,40 @@
+# ============================================================================
+# COST MODEL  —  model prices, budgets, and alert thresholds (Req 3).
+# ----------------------------------------------------------------------------
+# Drives per-call metering, the cost train rollups, and budget guardrails.
+# PRICES ARE EDITABLE PLACEHOLDERS — verify against current Anthropic pricing
+# before relying on them. USD per 1,000,000 tokens (per MTok).
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+currency: USD
+
+# --- Model prices (per MTok). PLACEHOLDER — confirm live pricing. ---
+models:
+  haiku:   { input_per_mtok: 1.00,  output_per_mtok: 5.00 }
+  sonnet:  { input_per_mtok: 3.00,  output_per_mtok: 15.00 }
+  opus:    { input_per_mtok: 15.00, output_per_mtok: 75.00 }
+# Non-LLM costs to fold into unit economics (editable; approximate):
+external:
+  whatsapp_conversation_utility_inr: 0.35   # 11za/Meta per templated conversation (verify with 11za)
+  whisper_per_minute_usd: 0.006
+
+# --- Budgets: hard ceilings + alert thresholds ---
+budgets:
+  per_transaction:
+    default_max_usd: 0.15        # step budgets in plans override this; also enforced by cost guardrail
+    summative_max_usd: 0.60      # gates run a critic panel -> higher ceiling
+  per_learner_lifetime:
+    target_usd: 8.00             # cost-per-consultant target across the 90-day BUILD (editable)
+    alert_usd: 12.00             # dashboard alert card fires above this
+  per_agent_daily:
+    alert_usd: 25.00             # runaway-agent alert
+
+# --- Alerting (surfaces actionable cards on the Cockpit dashboard) ---
+alerts:
+  learner_over_budget:     { when: "learner.lifetime_usd > budgets.per_learner_lifetime.alert_usd", severity: warn }
+  agent_daily_spike:       { when: "agent.today_usd > budgets.per_agent_daily.alert_usd",           severity: warn }
+  critique_overhead_high:  { when: "workflow.critic_usd_share > 0.55",                               severity: warn, detail: "Critique is >55% of spend — tune critics.yaml sampling." }
+
+# --- Rollup dimensions the ledger supports (for the clickable cost train) ---
+rollup_dimensions: [transaction, plan_step, workflow, learner, agent, model, day, call_role]

@@ -1,0 +1,27 @@
+# Render Blueprint — one Docker web service + managed Postgres.
+# Connect the repo in Render and it provisions from this file.
+services:
+  - type: web
+    name: d2d-service
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: d2d-db
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false          # set in the Render dashboard (secret)
+      - key: WA_API_BASE
+        sync: false
+      - key: WA_API_TOKEN
+        sync: false
+      - key: WA_WEBHOOK_SECRET
+        sync: false
+
+databases:
+  - name: d2d-db
+    plan: basic-256mb
+    postgresMajorVersion: "16"

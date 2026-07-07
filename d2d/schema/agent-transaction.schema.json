@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://d2d.dev/schema/agent-transaction.schema.json",
+  "title": "Agent Transaction",
+  "description": "The atomic, immutable record of one agent invocation. Unifies output, evidence, critique, guardrails, cost, and plan/act context (Requirements 1-5). The transaction ledger is the single source for cost, quality, audit, and every dashboard view.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["transaction_id", "timestamp", "agent", "plan_ref", "output", "evidence", "critique", "guardrails", "cost", "status"],
+  "properties": {
+    "transaction_id": { "type": "string", "description": "Unique, immutable." },
+    "timestamp":      { "type": "string", "format": "date-time" },
+    "subject_id":     { "type": "string", "description": "Who this is about (e.g. learner_id)." },
+    "agent": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name":    { "type": "string", "description": "e.g. examiner, trainer, planner." },
+        "version": { "type": "string" },
+        "role":    { "type": "string", "enum": ["planner", "actor", "critic"], "description": "Position in plan-and-act." }
+      }
+    },
+    "plan_ref": {
+      "type": "object",
+      "required": ["plan_id", "step_id"],
+      "description": "Ties the transaction to its plan step (Requirement 5).",
+      "properties": {
+        "plan_id":     { "type": "string" },
+        "step_id":     { "type": "string" },
+        "workflow_id": { "type": "string" }
+      }
+    },
+    "input_ref": { "type": "string", "description": "Pointer to the (PII-redacted) input snapshot." },
+
+    "output": { "description": "The agent's result. Shape validated against the step's output_contract." },
+
+    "evidence": {
+      "type": "object",
+      "description": "What justifies the output (Requirement 1). Structured, not prose.",
+      "required": ["sources", "reasoning_summary"],
+      "properties": {
+        "sources":     { "type": "array", "items": { "type": "string" }, "description": "Grounding refs (docs, rubric anchors, submissions, prior transactions)." },
+        "tool_calls":  { "type": "array", "items": { "type": "object", "properties": { "tool": {"type":"string"}, "args_ref": {"type":"string"}, "result_ref": {"type":"string"} } } },
+        "reasoning_summary": { "type": "string" },
+        "confidence":  { "type": "number", "minimum": 0, "maximum": 1 },
+        "framework_version": { "type": "string" },
+        "rubric_version":    { "type": "string" }
+      }
+    },
+
+    "critique": {
+      "type": "object",
+      "description": "Validation of the evidence and output before acceptance (Requirement 2).",
+      "required": ["verdict"],
+      "properties": {
+        "policy":    { "type": "string", "description": "critics.yaml policy id applied." },
+        "verdict":   { "type": "string", "enum": ["accept", "revise", "reject", "escalate", "skipped_by_policy"] },
+        "critics": {
+          "type": "array",
+          "description": "One entry per critic (panel supported).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "model":   { "type": "string" },
+              "verdict": { "type": "string", "enum": ["accept", "revise", "reject", "escalate"] },
+              "checks":  { "type": "array", "items": { "type": "string" } },
+              "justification": { "type": "string" }
+            }
+          }
+        },
+        "revisions": { "type": "integer", "minimum": 0, "description": "Number of act↔critique loops taken." }
+      }
+    },
+
+    "guardrails": {
+      "type": "object",
+      "description": "Every guardrail evaluated, pass or fail (Requirement 4).",
+      "properties": {
+        "input":  { "type": "array", "items": { "$ref": "#/$defs/guardrail_result" } },
+        "output": { "type": "array", "items": { "$ref": "#/$defs/guardrail_result" } },
+        "blocked": { "type": "boolean" }
+      }
+    },
+
+    "cost": {
+      "type": "object",
+      "description": "Per-call metering across actor+critic+guardrail LLM calls (Requirement 3).",
+      "required": ["total_usd", "total_tokens", "calls"],
+      "properties": {
+        "total_usd":    { "type": "number" },
+        "total_tokens": { "type": "integer" },
+        "total_ms":     { "type": "integer" },
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "model", "usd"],
+            "properties": {
+              "role":          { "type": "string", "enum": ["actor", "critic", "guardrail"], "description": "So critique/guardrail overhead is separable." },
+              "model":         { "type": "string" },
+              "input_tokens":  { "type": "integer" },
+              "output_tokens": { "type": "integer" },
+              "usd":           { "type": "number" },
+              "ms":            { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+
+    "status": { "type": "string", "enum": ["completed", "revised", "escalated", "blocked", "failed"] },
+
+    "links": {
+      "type": "object",
+      "properties": {
+        "parent_transaction":     { "type": "string" },
+        "evidence_events_emitted": { "type": "array", "items": { "type": "string" }, "description": "Domain evidence events (Learner Record Store) produced by this transaction." }
+      }
+    }
+  },
+  "$defs": {
+    "guardrail_result": {
+      "type": "object",
+      "required": ["id", "passed", "severity"],
+      "properties": {
+        "id":       { "type": "string", "description": "guardrails.yaml rule id." },
+        "passed":   { "type": "boolean" },
+        "severity": { "type": "string", "enum": ["block", "escalate", "warn"] },
+        "detail":   { "type": "string" }
+      }
+    }
+  }
+}

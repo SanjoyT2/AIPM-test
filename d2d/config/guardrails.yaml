@@ -1,0 +1,49 @@
+# ============================================================================
+# GUARDRAILS  —  policy checks run around every agent transaction (Req 4).
+# ----------------------------------------------------------------------------
+# Enforced centrally at the LLM gateway; no agent can opt out. Editable/versioned.
+# Distinct from critics (LLM quality judgment) — see critics.yaml.
+#
+# HOW TO EDIT: add a rule under `rules`, set severity + stage, attach via
+# `policies` (referenced from a plan step's guardrail_policy). Bump version.
+# severity: block (must fix) | escalate (to human) | warn (allow + record)
+# stage:    input (step 2) | output (step 5) | runtime (during act)
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+rules:
+  # ---- Input ----
+  pii_redaction:        { stage: input,  severity: block, kind: ml,          detail: "Redact Aadhaar/PAN/UPI/phone before model sees input. Also DPDP." }
+  prompt_injection:     { stage: input,  severity: block, kind: ml,          detail: "Detect attempts to override agent instructions." }
+  input_schema:         { stage: input,  severity: block, kind: schema,      detail: "Inputs match the step contract." }
+  consent_window:       { stage: input,  severity: block, kind: rule,        detail: "window_open=false or opted-out -> hold/template only." }
+
+  # ---- Output ----
+  output_schema:        { stage: output, severity: block, kind: schema,      detail: "Output matches step output_contract." }
+  grounding:            { stage: output, severity: block, kind: ml,          detail: "Output claims must be supported by evidence.sources (anti-hallucination)." }
+  safety:               { stage: output, severity: block, kind: ml,          detail: "No toxic/unsafe content." }
+  pii_leak:             { stage: output, severity: block, kind: ml,          detail: "No exposure of another person's PII (cross-tenant)." }
+
+  # ---- Policy: agent must-not rules (lifted from prompts, enforced) ----
+  mentor_no_direct_answers:     { stage: output, severity: block,    kind: policy, applies_to: [mentor],   detail: "No quiz/task/gate answers." }
+  examiner_no_coaching:         { stage: runtime, severity: block,   kind: policy, applies_to: [examiner], detail: "No hints during a gate." }
+  examiner_calibration_required: { stage: runtime, severity: block,  kind: rule,   applies_to: [examiner], detail: "No summative score on an uncalibrated rubric version." }
+  no_false_promises:            { stage: output, severity: escalate, kind: policy, detail: "No job/admission/revenue guarantees (any agent)." }
+  no_unversioned_score:         { stage: output, severity: block,    kind: rule,   detail: "A score must carry framework_version + rubric_version." }
+
+  # ---- Safety nets ----
+  cost_ceiling_per_transaction: { stage: runtime, severity: block,    kind: rule, detail: "Transaction exceeds its plan step budget -> halt or degrade." }
+  max_retries:                  { stage: runtime, severity: escalate, kind: rule, params: { limit: 2 }, detail: "Bounded act<->critique revise loops." }
+  distress_escalation:          { stage: runtime, severity: escalate, kind: ml,   detail: "Learner distress signals -> operator queue." }
+
+# ---------------------------------------------------------------------------
+# POLICIES — named bundles a plan step references via `guardrail_policy`.
+# Compose rules for each situation. Editable.
+# ---------------------------------------------------------------------------
+policies:
+  default:            [pii_redaction, prompt_injection, input_schema, output_schema, safety, no_unversioned_score, cost_ceiling_per_transaction, max_retries]
+  conversational:     [pii_redaction, prompt_injection, consent_window, safety, no_false_promises, distress_escalation, cost_ceiling_per_transaction]
+  mentor:             [pii_redaction, prompt_injection, consent_window, safety, mentor_no_direct_answers, distress_escalation, cost_ceiling_per_transaction]
+  summative_scoring:  [pii_redaction, input_schema, output_schema, grounding, examiner_calibration_required, examiner_no_coaching, no_unversioned_score, cost_ceiling_per_transaction, max_retries]
+  task_grading:       [pii_redaction, input_schema, output_schema, grounding, no_unversioned_score, cost_ceiling_per_transaction]

@@ -1,0 +1,35 @@
+# Local dev = exactly what Render runs, plus a local Postgres.
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgres://d2d:d2d@db:5432/d2d
+      # ANTHROPIC_API_KEY: set in .env or here to leave stub mode
+      # WA_WEBHOOK_SECRET / WA_API_BASE / WA_API_TOKEN: 11za credentials
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: d2d
+      POSTGRES_PASSWORD: d2d
+      POSTGRES_DB: d2d
+    ports:
+      - "5432:5432"
+    volumes:
+      - d2d_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U d2d"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  d2d_pgdata:

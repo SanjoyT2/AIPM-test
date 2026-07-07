@@ -1,0 +1,61 @@
+# ============================================================================
+# CRITICS  —  LLM validation of evidence + output before acceptance (Req 2).
+# ----------------------------------------------------------------------------
+# The critic answers: "does the evidence support the output, and is it within
+# spec?" Verdict drives control flow (accept/revise/reject/escalate).
+# Cost-aware by design: full critique ~doubles a transaction's LLM spend, so it
+# is applied by stakes. Editable/versioned; referenced from plan steps.
+# ============================================================================
+version: 0.1.0
+effective_from: 2026-07-07
+
+# Standard checks a critic runs (editable list; policies pick a subset).
+checks:
+  grounding:       "Every output claim is supported by evidence.sources."
+  spec_compliance: "Output obeys the agent's spec and must-not rules."
+  consistency:     "Output is internally consistent and complete."
+  rubric_fidelity: "Score matches the rubric anchors (summative)."
+  refutation:      "Actively try to REFUTE the output; default to revise if uncertain."
+
+# ---------------------------------------------------------------------------
+# POLICIES — a plan step references one via `critic_policy`.
+#   mode: always | sample | on_escalation
+#   panel: number of independent critics (majority verdict)
+#   pass_rule: how panel verdicts combine
+# ---------------------------------------------------------------------------
+policies:
+  # Summative gates & anything that moves the composite: strict, adversarial.
+  summative:
+    mode: always
+    panel: 2
+    model: sonnet
+    checks: [grounding, rubric_fidelity, spec_compliance, refutation]
+    pass_rule: majority_accept        # both/most must accept; else revise or escalate
+    on_split: escalate                # disagreement -> operator
+
+  # Routing / planning: validate the plan/decision is sound.
+  planning:
+    mode: always
+    panel: 1
+    model: sonnet
+    checks: [consistency, spec_compliance]
+    on_reject: replan
+
+  # Daily formative grading: sample to control cost; guardrails still 100%.
+  formative:
+    mode: sample
+    sample_rate: 0.15                 # editable; raise for more assurance, costs more
+    panel: 1
+    model: haiku
+    checks: [grounding, spec_compliance]
+
+  # Conversational (Mentor/Motivator): fast path, critic only when escalating.
+  conversational:
+    mode: on_escalation
+    panel: 1
+    model: sonnet
+    checks: [spec_compliance, refutation]
+
+# Global bounds shared with guardrails.max_retries.
+limits:
+  max_revise_loops: 2                 # exhausted -> escalate to operator

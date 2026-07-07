@@ -1,0 +1,29 @@
+{
+  "name": "@d2d/service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "D2D AI OS - Phase 1 agentic platform service (agent transactions, plan-and-act, LLM gateway, 11za webhook)",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "validate:config": "tsx src/config-loader.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
