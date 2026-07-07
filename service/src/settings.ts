@@ -31,4 +31,7 @@ export const settings = {
   /** The editable frameworks (YAML) + their JSON Schemas. */
   configDir: process.env.D2D_CONFIG_DIR ?? path.join(repoRoot, "d2d", "config"),
   schemaDir: process.env.D2D_SCHEMA_DIR ?? path.join(repoRoot, "d2d", "schema"),
+
+  /** Built dashboard (served statically when present — one container, one service). */
+  dashboardDir: process.env.DASHBOARD_DIR ?? path.join(repoRoot, "dashboard", "dist"),
 } as const;

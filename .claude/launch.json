@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "d2d-service",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dist/server.js"],
+      "cwd": "service",
+      "port": 8000
+    }
+  ]
+}

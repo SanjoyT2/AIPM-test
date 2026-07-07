@@ -7,6 +7,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { loadFrameworks } from "./config-loader.js";
 import { LlmGateway } from "./gateway.js";
@@ -32,7 +33,7 @@ async function main() {
   const app = Fastify({ logger: true });
 
   // ---- Health & meta ----
-  app.get("/health", async () => ({
+  app.get("/api/health", async () => ({
     status: "ok",
     env: settings.env,
     storage: ledger.storage,
@@ -40,8 +41,8 @@ async function main() {
     framework_versions: frameworks.versions,
   }));
 
-  app.get("/config/frameworks", async () => frameworks.versions);
-  app.get("/config/frameworks/:name", async (req, reply) => {
+  app.get("/api/config/frameworks", async () => frameworks.versions);
+  app.get("/api/config/frameworks/:name", async (req, reply) => {
     const { name } = req.params as { name: string };
     const map: Record<string, unknown> = {
       "competency-framework": frameworks.competencyFramework,
@@ -57,7 +58,7 @@ async function main() {
   });
 
   // ---- Transaction ledger (Req 1-4 all live on this record) ----
-  app.post("/transactions", async (req, reply) => {
+  app.post("/api/transactions", async (req, reply) => {
     const body = req.body as AgentTransaction;
     if (!validateTx(body)) {
       return reply.code(422).send({ error: "schema validation failed", details: validateTx.errors });
@@ -70,12 +71,12 @@ async function main() {
     return reply.code(201).send({ transaction_id: body.transaction_id });
   });
 
-  app.get("/transactions", async (req) => {
+  app.get("/api/transactions", async (req) => {
     const q = req.query as { agent?: string; subject?: string; status?: string; limit?: string };
     return ledger.list({ agent: q.agent, subject: q.subject, status: q.status, limit: q.limit ? Number(q.limit) : undefined });
   });
 
-  app.get("/transactions/:id", async (req, reply) => {
+  app.get("/api/transactions/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const tx = await ledger.get(id);
     if (!tx) return reply.code(404).send({ error: "not found" });
@@ -83,13 +84,26 @@ async function main() {
   });
 
   // ---- Cost train rollups (Req 3 / dashboard) ----
-  app.get("/costs/rollup", async (req, reply) => {
+  app.get("/api/costs/rollup", async (req, reply) => {
     const { by = "agent" } = req.query as { by?: string };
     if (!["agent", "subject", "plan", "status"].includes(by)) {
       return reply.code(400).send({ error: "by must be one of agent|subject|plan|status" });
     }
     return ledger.costRollup(by as "agent" | "subject" | "plan" | "status");
   });
+
+  // ---- Cockpit dashboard (built SPA, when present) ----
+  if (fs.existsSync(path.join(settings.dashboardDir, "index.html"))) {
+    await app.register(fastifyStatic, { root: settings.dashboardDir, wildcard: false });
+    // SPA fallback: unmatched GET routes render the app (client-side router takes over).
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === "GET" && !req.url.startsWith("/api") && !req.url.startsWith("/webhooks")) {
+        return reply.sendFile("index.html");
+      }
+      return reply.code(404).send({ error: "not found" });
+    });
+    app.log.info(`dashboard: serving ${settings.dashboardDir}`);
+  }
 
   // ---- 11za inbound webhook (ADR-005) ----
   app.post("/webhooks/11za", async (req, reply) => {

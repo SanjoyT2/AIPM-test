@@ -9,12 +9,20 @@ COPY service/tsconfig.json ./
 COPY service/src ./src
 RUN npm run build
 
+FROM node:22-alpine AS dashboard
+WORKDIR /app/dashboard
+COPY dashboard/package*.json ./
+RUN npm ci
+COPY dashboard/ ./
+RUN npm run build
+
 FROM node:22-alpine
 ENV NODE_ENV=production
 WORKDIR /app/service
 COPY service/package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/service/dist ./dist
+COPY --from=dashboard /app/dashboard/dist /app/dashboard/dist
 # The editable frameworks ship with the image; D2D_CONFIG_DIR can point elsewhere later.
 COPY d2d /app/d2d
 EXPOSE 8000

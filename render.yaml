@@ -6,7 +6,7 @@ services:
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /health
+    healthCheckPath: /api/health
     envVars:
       - key: DATABASE_URL
         fromDatabase:

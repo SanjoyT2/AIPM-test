@@ -10,10 +10,12 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "validate:config": "tsx src/config-loader.ts"
+    "validate:config": "tsx src/config-loader.ts",
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
+    "@fastify/static": "^8.0.0",
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",
     "fastify": "^5.0.0",
