@@ -4,7 +4,7 @@ services:
   - type: web
     name: d2d-service
     runtime: docker
-    plan: starter
+    plan: free          # ₹0 while testing; cold-starts after ~15 min idle. Bump to starter for always-on.
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     envVars:
@@ -23,5 +23,5 @@ services:
 
 databases:
   - name: d2d-db
-    plan: basic-256mb
+    plan: free          # NOTE: Render free Postgres expires after 30 days — upgrade before then.
     postgresMajorVersion: "16"

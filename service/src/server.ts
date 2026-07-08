@@ -9,7 +9,10 @@ import fs from "node:fs";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { loadAgents } from "./agents.js";
 import { loadFrameworks } from "./config-loader.js";
+import { DailyLoop } from "./daily-loop.js";
+import { Executor } from "./executor.js";
 import { LlmGateway } from "./gateway.js";
 import { Ledger } from "./ledger.js";
 import { settings } from "./settings.js";
@@ -29,6 +32,12 @@ async function main() {
   const validateTx = compileSchema(
     JSON.parse(fs.readFileSync(path.join(settings.schemaDir, "agent-transaction.schema.json"), "utf8")),
   );
+
+  // 4. Executor + daily loop (plan-and-act runtime)
+  const agents = loadAgents();
+  const executor = new Executor(frameworks, gateway, ledger, validateTx as (tx: unknown) => boolean);
+  const dailyLoop = new DailyLoop(executor, agents, frameworks);
+  dailyLoop.startSilenceSweep();
 
   const app = Fastify({ logger: true });
 
@@ -105,16 +114,33 @@ async function main() {
     app.log.info(`dashboard: serving ${settings.dashboardDir}`);
   }
 
-  // ---- 11za inbound webhook (ADR-005) ----
+  // ---- 11za inbound webhook (ADR-005) → daily loop → executor ----
   app.post("/webhooks/11za", async (req, reply) => {
     const secret = (req.headers["x-webhook-secret"] ?? "") as string;
     if (settings.wa.webhookSecret && secret !== settings.wa.webhookSecret) {
       return reply.code(401).send({ error: "bad webhook secret" });
     }
-    // Inbound learner message: rolls the 24h window forward and (later) routes
-    // to the daily-loop workflow. For now: acknowledge + log.
-    req.log.info({ payload: req.body }, "11za inbound");
-    return { received: true };
+    // Accept the common shapes: {from,text} | {phone,message} | {sender,body}. Confirm exact 11za payload later.
+    const b = (req.body ?? {}) as Record<string, string>;
+    const from = b.from ?? b.phone ?? b.sender ?? "";
+    const text = b.text ?? b.message ?? b.body ?? "";
+    if (!from || !text) {
+      req.log.warn({ payload: req.body }, "11za inbound: unrecognized payload shape");
+      return { received: true, routed: false };
+    }
+    const result = await dailyLoop.handleInbound(from, text);
+    req.log.info({ from, ...result }, "11za inbound routed through executor");
+    // v0 echoes the reply in the response; the 11za outbound client will send it in-thread.
+    return { received: true, routed: true, ...result };
+  });
+
+  // ---- Dev: simulate an inbound learner message (no 11za needed) ----
+  app.post("/api/dev/simulate-inbound", async (req, reply) => {
+    if (settings.env === "production" && !settings.wa.webhookSecret) {
+      return reply.code(403).send({ error: "disabled" });
+    }
+    const { learner = "priya-sharma", text = "START" } = (req.body ?? {}) as { learner?: string; text?: string };
+    return dailyLoop.handleInbound(learner, text);
   });
 
   await app.listen({ port: settings.port, host: "0.0.0.0" });
