@@ -2,9 +2,14 @@
  * Transaction Ledger — append-only store for Agent Transactions (doc 04/06).
  * "If it isn't a transaction, it didn't happen."
  *
- * Postgres JSONB: the full transaction document is stored verbatim (audit),
- * with generated columns for the dimensions the dashboard filters on. Rollups
- * for the cost train are plain SQL over these columns.
+ * Postgres JSONB: the full transaction document is stored verbatim (audit), with
+ * projected columns for the dimensions the dashboard filters on. Rollups for the
+ * cost train are plain SQL over those columns.
+ *
+ * `ts` is written explicitly at insert rather than as a generated column: casting
+ * text -> timestamptz is STABLE (timezone-dependent), and Postgres only allows
+ * IMMUTABLE expressions in generated columns. The purely textual/numeric
+ * projections below are immutable and stay generated.
  *
  * No DATABASE_URL => in-memory fallback so local dev runs without Postgres
  * (data is NOT durable; the API reports storage: "memory").
@@ -17,22 +22,36 @@ const DDL = `
 CREATE TABLE IF NOT EXISTS agent_transactions (
   transaction_id TEXT PRIMARY KEY,
   doc            JSONB NOT NULL,
-  ts             TIMESTAMPTZ GENERATED ALWAYS AS ((doc->>'timestamp')::timestamptz) STORED,
-  agent_name     TEXT GENERATED ALWAYS AS (doc->'agent'->>'name') STORED,
-  subject_id     TEXT GENERATED ALWAYS AS (doc->>'subject_id') STORED,
-  plan_id        TEXT GENERATED ALWAYS AS (doc->'plan_ref'->>'plan_id') STORED,
-  status         TEXT GENERATED ALWAYS AS (doc->>'status') STORED,
+  ts             TIMESTAMPTZ NOT NULL,
+  agent_name     TEXT    GENERATED ALWAYS AS (doc->'agent'->>'name') STORED,
+  subject_id     TEXT    GENERATED ALWAYS AS (doc->>'subject_id') STORED,
+  plan_id        TEXT    GENERATED ALWAYS AS (doc->'plan_ref'->>'plan_id') STORED,
+  status         TEXT    GENERATED ALWAYS AS (doc->>'status') STORED,
   total_usd      NUMERIC GENERATED ALWAYS AS ((doc->'cost'->>'total_usd')::numeric) STORED
 );
-CREATE INDEX IF NOT EXISTS idx_tx_agent   ON agent_transactions (agent_name, ts);
-CREATE INDEX IF NOT EXISTS idx_tx_subject ON agent_transactions (subject_id, ts);
+CREATE INDEX IF NOT EXISTS idx_tx_agent   ON agent_transactions (agent_name, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_tx_subject ON agent_transactions (subject_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_tx_plan    ON agent_transactions (plan_id);
+CREATE INDEX IF NOT EXISTS idx_tx_ts      ON agent_transactions (ts DESC);
 `;
 
 export interface CostRollupRow {
   dimension: string;
   transactions: number;
   total_usd: number;
+}
+
+/**
+ * Render's *external* Postgres URLs require TLS; the *internal* one does not.
+ * Auto-detect, with DATABASE_SSL=true|false as an explicit override.
+ */
+function needsSsl(url: string): boolean {
+  const override = process.env.DATABASE_SSL;
+  if (override === "true") return true;
+  if (override === "false") return false;
+  if (/[?&]sslmode=(disable|allow)/.test(url)) return false;
+  if (/[?&]sslmode=require/.test(url)) return true;
+  return !/@(localhost|127\.0\.0\.1|db|postgres)[:/]/.test(url) && !url.includes(".internal");
 }
 
 export class Ledger {
@@ -44,17 +63,34 @@ export class Ledger {
   }
 
   async init(): Promise<void> {
-    if (!settings.databaseUrl) return; // memory mode
-    this.pool = new pg.Pool({ connectionString: settings.databaseUrl });
-    await this.pool.query(DDL);
+    if (!settings.databaseUrl) return; // memory mode — intentional for local dev
+    const ssl = needsSsl(settings.databaseUrl);
+    const pool = new pg.Pool({
+      connectionString: settings.databaseUrl,
+      ssl: ssl ? { rejectUnauthorized: false } : undefined,
+      max: Number(process.env.DATABASE_POOL_MAX ?? 5), // free-tier Postgres has a low connection cap
+      connectionTimeoutMillis: 10_000,
+    });
+    try {
+      await pool.query(DDL);
+    } catch (err) {
+      await pool.end().catch(() => {});
+      // Fail loudly: DATABASE_URL was set, so silently degrading to memory would
+      // lose data the operator believes is persisted.
+      throw new Error(
+        `Ledger: DATABASE_URL is set but Postgres init failed (ssl=${ssl}). ` +
+        `Check the connection string and DATABASE_SSL. Cause: ${(err as Error).message}`,
+      );
+    }
+    this.pool = pool;
   }
 
   /** Append-only. Rejects duplicates; there is no update path by design. */
   async append(tx: AgentTransaction): Promise<void> {
     if (this.pool) {
       await this.pool.query(
-        "INSERT INTO agent_transactions (transaction_id, doc) VALUES ($1, $2)",
-        [tx.transaction_id, JSON.stringify(tx)],
+        "INSERT INTO agent_transactions (transaction_id, doc, ts) VALUES ($1, $2, $3)",
+        [tx.transaction_id, JSON.stringify(tx), tx.timestamp],
       );
     } else {
       if (this.memory.some((t) => t.transaction_id === tx.transaction_id)) {
@@ -92,8 +128,9 @@ export class Ledger {
         (!filter.agent || t.agent.name === filter.agent) &&
         (!filter.subject || t.subject_id === filter.subject) &&
         (!filter.status || t.status === filter.status))
-      .slice(-limit)
-      .reverse();
+      .slice()
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, limit);
   }
 
   /** The cost train: spend rolled up by a dimension (Req 3). */
@@ -103,7 +140,7 @@ export class Ledger {
       const r = await this.pool.query(
         `SELECT COALESCE(${col}, '(none)') AS dimension,
                 COUNT(*)::int AS transactions,
-                COALESCE(SUM(total_usd), 0)::float AS total_usd
+                COALESCE(SUM(total_usd), 0)::float8 AS total_usd
          FROM agent_transactions GROUP BY 1 ORDER BY total_usd DESC`,
       );
       return r.rows;

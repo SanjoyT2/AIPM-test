@@ -11,6 +11,7 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "validate:config": "tsx src/config-loader.ts",
+    "verify:postgres": "tsx scripts/verify-postgres.ts",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "yaml": "^2.6.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
     "tsx": "^4.19.0",
