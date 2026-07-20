@@ -37,6 +37,14 @@ export const settings = {
   configDir: process.env.D2D_CONFIG_DIR ?? path.join(repoRoot, "d2d", "config"),
   schemaDir: process.env.D2D_SCHEMA_DIR ?? path.join(repoRoot, "d2d", "schema"),
 
+  /**
+   * Unauthenticated /api/dev/* simulation routes. Opt-in only: defaults to on
+   * outside production, and requires ENABLE_DEV_ROUTES=true to ever run in it.
+   */
+  enableDevRoutes:
+    process.env.ENABLE_DEV_ROUTES === "true" ||
+    ((process.env.NODE_ENV ?? "development") !== "production" && process.env.ENABLE_DEV_ROUTES !== "false"),
+
   /** Built dashboard (served statically when present — one container, one service). */
   dashboardDir: process.env.DASHBOARD_DIR ?? path.join(repoRoot, "dashboard", "dist"),
 } as const;

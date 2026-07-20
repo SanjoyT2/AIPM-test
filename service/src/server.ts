@@ -5,6 +5,7 @@
  * then the ledger, then routes. Every transaction posted to the ledger is validated
  * against the canonical JSON Schema — the same file that documents it.
  */
+import { createHash, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
@@ -18,6 +19,17 @@ import { Ledger } from "./ledger.js";
 import { settings } from "./settings.js";
 import type { AgentTransaction } from "./types.js";
 import { compileSchema } from "./validation.js";
+
+/**
+ * Constant-time secret comparison. Both sides are hashed first so the digests are
+ * always equal length — timingSafeEqual throws on length mismatch, and comparing
+ * raw values would leak the secret's length.
+ */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
 
 async function main() {
   // 1. Frameworks (throws on invalid config — refuse to boot)
@@ -135,8 +147,16 @@ async function main() {
 
   // ---- 11za inbound webhook (ADR-005) → daily loop → executor ----
   app.post("/webhooks/11za", async (req, reply) => {
-    const secret = (req.headers["x-webhook-secret"] ?? "") as string;
-    if (settings.wa.webhookSecret && secret !== settings.wa.webhookSecret) {
+    // FAIL CLOSED. This endpoint drives real LLM spend, so an unauthenticated
+    // caller is an unbounded cost (and data) exposure. Refuse to serve it in
+    // production unless a secret is actually configured.
+    if (!settings.wa.webhookSecret) {
+      if (settings.env === "production") {
+        req.log.error("11za webhook called but WA_WEBHOOK_SECRET is unset — refusing (fail closed)");
+        return reply.code(503).send({ error: "webhook not configured" });
+      }
+      req.log.warn("WA_WEBHOOK_SECRET unset — webhook is UNAUTHENTICATED (allowed in non-production only)");
+    } else if (!timingSafeEqualStr((req.headers["x-webhook-secret"] ?? "") as string, settings.wa.webhookSecret)) {
       return reply.code(401).send({ error: "bad webhook secret" });
     }
     // Accept the common shapes: {from,text} | {phone,message} | {sender,body}. Confirm exact 11za payload later.
@@ -154,13 +174,15 @@ async function main() {
   });
 
   // ---- Dev: simulate an inbound learner message (no 11za needed) ----
-  app.post("/api/dev/simulate-inbound", async (req, reply) => {
-    if (settings.env === "production" && !settings.wa.webhookSecret) {
-      return reply.code(403).send({ error: "disabled" });
-    }
-    const { learner = "priya-sharma", text = "START" } = (req.body ?? {}) as { learner?: string; text?: string };
-    return dailyLoop.handleInbound(learner, text);
-  });
+  // Gated by its own explicit flag. It must never become reachable as a side
+  // effect of some unrelated setting — it drives real LLM spend with no auth.
+  if (settings.enableDevRoutes) {
+    app.post("/api/dev/simulate-inbound", async (req) => {
+      const { learner = "priya-sharma", text = "START" } = (req.body ?? {}) as { learner?: string; text?: string };
+      return dailyLoop.handleInbound(learner, text);
+    });
+    app.log.warn("dev routes ENABLED (/api/dev/*) — unauthenticated; do not enable in production");
+  }
 
   await app.listen({ port: settings.port, host: "0.0.0.0" });
 }
