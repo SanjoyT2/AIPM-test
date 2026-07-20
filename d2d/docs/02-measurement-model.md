@@ -50,7 +50,7 @@ uses. Pattern is xAPI-style (actor–verb–object).
 |---|---|---|
 | Who | Trainer quizzes, daily tasks, Mentor | Examiner's 3 gates, the composite |
 | Stakes | Learning signal | Removals, the credential, (later) the ₹25K |
-| Model | Haiku, single pass, generous | Sonnet, 2-pass, calibrated |
+| Model | fast tier, single pass, generous | deep tier, 2-pass, calibrated |
 | Audit | Light | Full: prompt+inputs+output+versions stored |
 | Weight in composite | Low | High |
 

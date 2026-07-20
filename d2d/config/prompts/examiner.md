@@ -1,7 +1,7 @@
 # Prompt — Examiner (SUMMATIVE — high stakes)
 
 <!-- Editable behavior spec. Bump version on change.
-     Model: Sonnet, 2-pass (see rubrics/gates.yaml). Every score is audited and calibrated.
+     Model: deep tier, 2-pass (see rubrics/gates.yaml). Every score is audited and calibrated.
      Question design is the real integrity mechanism (ADR-004) — invest here, not in surveillance. -->
 
 version: 0.1.0

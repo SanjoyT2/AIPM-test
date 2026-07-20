@@ -18,10 +18,10 @@ export interface AgentSpec {
 }
 
 const BINDINGS: Record<string, { tier: ModelTier; guardrailPolicy: string; criticPolicy: string }> = {
-  trainer:   { tier: "haiku",  guardrailPolicy: "task_grading",      criticPolicy: "formative" },
-  mentor:    { tier: "haiku",  guardrailPolicy: "mentor",            criticPolicy: "conversational" },
-  motivator: { tier: "haiku",  guardrailPolicy: "conversational",    criticPolicy: "conversational" },
-  examiner:  { tier: "sonnet", guardrailPolicy: "summative_scoring", criticPolicy: "summative" },
+  trainer:   { tier: "fast", guardrailPolicy: "task_grading",      criticPolicy: "formative" },
+  mentor:    { tier: "fast", guardrailPolicy: "mentor",            criticPolicy: "conversational" },
+  motivator: { tier: "fast", guardrailPolicy: "conversational",    criticPolicy: "conversational" },
+  examiner:  { tier: "deep", guardrailPolicy: "summative_scoring", criticPolicy: "summative" },
 };
 
 export function loadAgents(): Record<string, AgentSpec> {

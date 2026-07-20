@@ -28,7 +28,7 @@ policies:
   summative:
     mode: always
     panel: 2
-    model: sonnet
+    model: deep
     checks: [grounding, rubric_fidelity, spec_compliance, refutation]
     pass_rule: majority_accept        # both/most must accept; else revise or escalate
     on_split: escalate                # disagreement -> operator
@@ -37,7 +37,7 @@ policies:
   planning:
     mode: always
     panel: 1
-    model: sonnet
+    model: deep
     checks: [consistency, spec_compliance]
     on_reject: replan
 
@@ -46,14 +46,14 @@ policies:
     mode: sample
     sample_rate: 0.15                 # editable; raise for more assurance, costs more
     panel: 1
-    model: haiku
+    model: fast
     checks: [grounding, spec_compliance]
 
   # Conversational (Mentor/Motivator): fast path, critic only when escalating.
   conversational:
     mode: on_escalation
     panel: 1
-    model: sonnet
+    model: deep
     checks: [spec_compliance, refutation]
 
 # Global bounds shared with guardrails.max_retries.

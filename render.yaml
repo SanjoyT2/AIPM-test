@@ -12,7 +12,7 @@ services:
         fromDatabase:
           name: d2d-db
           property: connectionString
-      - key: ANTHROPIC_API_KEY
+      - key: OPENAI_API_KEY
         sync: false          # set in the Render dashboard (secret)
       - key: WA_API_BASE
         sync: false

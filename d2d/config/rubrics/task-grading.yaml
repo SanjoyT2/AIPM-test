@@ -2,14 +2,14 @@
 # TASK GRADING RUBRIC  —  FORMATIVE. Low-stakes, fast, generous.
 # ----------------------------------------------------------------------------
 # Grades daily hands-on tasks. Feeds the `task` source of the composite at low
-# weight. Single-pass Haiku/Sonnet; NOT gated by calibration (formative).
+# weight. Single-pass on the deep tier; NOT gated by calibration (formative).
 # Editable; bump version on change. Not high-stakes, so no re-calibration needed.
 # ============================================================================
 version: 0.1.0
 effective_from: 2026-07-07
 
 grader:
-  model: sonnet          # tasks need judgment; still single-pass (formative)
+  model: deep          # tasks need judgment; still single-pass (formative)
   passes: 1
   tone: coaching         # feedback should teach, not just score
   require_feedback: true # 2-3 lines of actionable feedback returned to the learner

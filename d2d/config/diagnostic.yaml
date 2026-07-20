@@ -42,7 +42,7 @@ scoring:
   mcq: deterministic
   short_free_text:
     grader: llm
-    model: haiku          # low-stakes; cheap
+    model: fast          # low-stakes; cheap
     passes: 1
   # Diagnostic never gates anything and never counts toward the summative composite.
   contributes_to_composite: false

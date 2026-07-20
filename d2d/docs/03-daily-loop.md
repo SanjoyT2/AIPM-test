@@ -14,16 +14,16 @@ engagement signal.
                          └───────────────────┬─────────────────────────┘
                                              ▼
              ┌───────────────────────────────────────────────────────────┐
-             │ Trainer (Haiku): today's lesson, chosen from mastery state │
+             │ Trainer (fast): today's lesson, chosen from mastery state  │
              │  reading / short video / worked MSME case                  │
              └───────────────────┬───────────────────────────────────────┘
                                  ▼
         ┌────────────────────────────────────────────────────────────────┐
-        │ Quiz (deterministic grade)   +   Hands-on task (Sonnet rubric)  │
+        │ Quiz (deterministic grade)   +   Hands-on task (deep rubric)    │
         │  → evidence events (formative), async modality                  │
         └───────────────────┬────────────────────────────────────────────┘
                             ▼
-   Anytime:  Mentor (fast-path Haiku → escalate Sonnet) — coaches, never gives the answer
+   Anytime:  Mentor (fast-path → escalate to deep) — coaches, never gives the answer
    Anytime:  Motivator — celebrates milestones / nudges (in-window free; out-of-window template)
 ```
 
@@ -60,7 +60,7 @@ All thresholds are editable in config. Templates must be Meta-approved before us
 
 - **Mandatory live session** (Zoom/Meet) — Live Session Tracker records attendance +
   participation → sync-modality evidence, and feeds the integrity delta.
-- **Saturday gate** (when a level completes) — Examiner runs the summative viva; 2-pass Sonnet,
+- **Saturday gate** (when a level completes) — Examiner runs the summative viva; 2-pass deep tier,
   calibrated rubric; results → Leaderboard + Promotion check.
 
 ## Signals the loop produces (per learner, per day)

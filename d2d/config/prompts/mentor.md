@@ -1,6 +1,6 @@
 # Prompt — Personal Mentor
 
-<!-- Editable behavior spec. Bump version on change. Fast-path Haiku, escalate to Sonnet. -->
+<!-- Editable behavior spec. Bump version on change. Fast-path on the fast tier, escalate to deep. -->
 
 version: 0.1.0
 

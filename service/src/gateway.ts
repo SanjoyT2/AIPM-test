@@ -1,17 +1,21 @@
 /**
  * LLM Gateway — the ONE place all model calls go through (doc 01).
- * Responsibilities: model routing (haiku/sonnet tiers), per-call cost metering
+ * Responsibilities: model routing (fast/deep tiers), per-call cost metering
  * from cost-model.yaml, and call records for the transaction ledger (Req 3).
  * Guardrail hooks wrap this at the executor level (doc 07).
  *
- * Stub mode: with no ANTHROPIC_API_KEY the gateway returns deterministic canned
+ * Provider: OpenAI. Tiers are deliberately provider-NEUTRAL ("fast" / "deep") so
+ * swapping vendors or model generations is a settings + cost-model edit, never a
+ * code change in agents/critics/rubrics.
+ *
+ * Stub mode: with no OPENAI_API_KEY the gateway returns deterministic canned
  * output so the whole platform runs locally / in CI without spend.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { settings } from "./settings.js";
 import type { CallRole, LlmCall } from "./types.js";
 
-export type ModelTier = "haiku" | "sonnet";
+export type ModelTier = "fast" | "deep";
 
 export interface GatewayRequest {
   tier: ModelTier;
@@ -30,11 +34,11 @@ export interface GatewayResponse {
 interface Pricing { input_per_mtok: number; output_per_mtok: number }
 
 export class LlmGateway {
-  private client: Anthropic | null;
+  private client: OpenAI | null;
   private prices: Record<string, Pricing>;
 
   constructor(costModel: any) {
-    this.client = settings.anthropicApiKey ? new Anthropic({ apiKey: settings.anthropicApiKey }) : null;
+    this.client = settings.openaiApiKey ? new OpenAI({ apiKey: settings.openaiApiKey }) : null;
     this.prices = costModel.models ?? {};
   }
 
@@ -67,18 +71,17 @@ export class LlmGateway {
       };
     }
 
-    const res = await this.client.messages.create({
+    const res = await this.client.chat.completions.create({
       model,
-      max_tokens: req.maxTokens ?? 1024,
-      system: req.system,
-      messages: [{ role: "user", content: req.user }],
+      max_completion_tokens: req.maxTokens ?? 1024,
+      messages: [
+        { role: "system", content: req.system },
+        { role: "user", content: req.user },
+      ],
     });
-    const text = res.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    const inTok = res.usage.input_tokens;
-    const outTok = res.usage.output_tokens;
+    const text = res.choices[0]?.message?.content ?? "";
+    const inTok = res.usage?.prompt_tokens ?? 0;
+    const outTok = res.usage?.completion_tokens ?? 0;
     return {
       text,
       stub: false,

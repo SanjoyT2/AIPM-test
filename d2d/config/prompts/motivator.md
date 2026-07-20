@@ -1,6 +1,6 @@
 # Prompt — Motivator
 
-<!-- Editable behavior spec. Bump version on change. Tone matters → Sonnet.
+<!-- Editable behavior spec. Bump version on change. Tone matters → deep tier.
      Window-aware: in-window = free-form (this prompt); out-of-window = templates. -->
 
 version: 0.1.0

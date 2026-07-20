@@ -23,8 +23,8 @@ the event stream (escalation triage, weekly ops report, anomaly detection).
 
 ## ADR-002 — Formative and summative scoring are separate paths {#adr-002}
 
-**Decision:** Formative (quizzes, tasks, Mentor) = Haiku, single pass, generous, low weight.
-Summative (3 gates, composite) = Sonnet, 2-pass, calibrated, fully audited, high weight.
+**Decision:** Formative (quizzes, tasks, Mentor) = fast tier, single pass, generous, low weight.
+Summative (3 gates, composite) = deep tier, 2-pass, calibrated, fully audited, high weight.
 
 **Why:** One shared path forces a bad trade — formative too expensive or summative too loose.
 Stakes differ by orders of magnitude (a task hint vs. a removal / the credential).

@@ -43,31 +43,35 @@ event stream — off the synchronous path.
 ```
 07:30 IST   Learner sends START (or streak tap)  ──►  opens 24h WhatsApp window
             │
-            ├─ Trainer (Haiku): serves today's lesson, personalized from mastery
+            ├─ Trainer (fast): serves today's lesson, personalized from mastery
             ├─ Learner does reading/video + quiz + hands-on task in-thread
             ├─ Grading:
-            │     quiz        → deterministic        → evidence event (formative)
-            │     task        → LLM rubric (Sonnet)  → evidence event (formative)
-            ├─ Mentor (Haiku fast-path → Sonnet escalate): coaches, never answers
+            │     quiz        → deterministic       → evidence event (formative)
+            │     task        → LLM rubric (deep)   → evidence event (formative)
+            ├─ Mentor (fast-path → escalate to deep): coaches, never answers
             └─ Motivator: celebrates / nudges (in-window free; out-of-window → template)
 
-Weekly     Live session (Tracker) + Saturday gate (Examiner, 2-pass Sonnet, calibrated)
+Weekly     Live session (Tracker) + Saturday gate (Examiner, 2-pass deep tier, calibrated)
             → summative evidence events
 
 Continuous Leaderboard recomputes composite (deterministic) · Promotion checks thresholds
 ```
 
-Formative vs. summative are split hard: formative is cheap/fast/generous (Haiku, low weight);
-summative is high-stakes/audited/calibrated (Sonnet 2-pass). See the measurement doc.
+Formative vs. summative are split hard: formative is cheap/fast/generous (fast tier, low weight);
+summative is high-stakes/audited/calibrated (deep tier 2-pass). See the measurement doc.
 
 ---
 
 ## Model routing (behind the LLM gateway)
 
-| Use | Model | Why |
+Tiers are provider-neutral. Each resolves to a concrete model via `MODEL_FAST` / `MODEL_DEEP`
+env vars (currently OpenAI `gpt-4o-mini` / `gpt-4o`), priced in `cost-model.yaml`. Swapping
+vendor or model generation is a config change, never a code change.
+
+| Use | Tier | Why |
 |---|---|---|
-| Lesson delivery, FAQ, Mentor fast-path | Haiku | High volume, low latency, cheap |
-| Task grading, Mentor escalation, Examiner | Sonnet (2-pass on summative) | Judgment + variance control |
+| Lesson delivery, FAQ, Mentor fast-path | `fast` | High volume, low latency, cheap |
+| Task grading, Mentor escalation, Examiner | `deep` (2-pass on summative) | Judgment + variance control |
 | Composite, progression checks, leaderboard | **No LLM** (deterministic code) | Money/fairness-adjacent → must be exact & auditable |
 
 The gateway is the one place that logs every summative call for the eval harness, redacts PII,
@@ -92,7 +96,7 @@ each *user* message. Phase-1 design consequences:
 
 ## Non-functionals to instrument from day one
 
-- **Latency budgets are per-agent, not a blanket "9s."** Haiku FAQ can hit it; Sonnet 2-pass
+- **Latency budgets are per-agent, not a blanket "9s."** fast tier FAQ can hit it; deep tier 2-pass
   can't — use instant ack → streamed answer, plus semantic caching of top confusion topics.
 - **Audit trail:** every summative decision stores prompt + inputs + output + framework/rubric
   version + model + passes. Required for appeals and for DPDP.

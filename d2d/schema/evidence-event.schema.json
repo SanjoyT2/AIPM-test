@@ -28,7 +28,7 @@
       "required": ["type"],
       "properties": {
         "type":   { "type": "string", "enum": ["deterministic", "llm", "human"] },
-        "model":  { "type": "string", "description": "e.g. haiku, sonnet (when type=llm)." },
+        "model":  { "type": "string", "description": "e.g. the resolved model id, when type=llm." },
         "passes": { "type": "integer", "minimum": 1 },
         "justification": { "type": "string", "description": "Required for summative; stored for appeal." }
       }

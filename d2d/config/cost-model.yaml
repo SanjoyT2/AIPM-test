@@ -2,18 +2,20 @@
 # COST MODEL  —  model prices, budgets, and alert thresholds (Req 3).
 # ----------------------------------------------------------------------------
 # Drives per-call metering, the cost train rollups, and budget guardrails.
-# PRICES ARE EDITABLE PLACEHOLDERS — verify against current Anthropic pricing
+# PRICES ARE EDITABLE PLACEHOLDERS — verify against current OpenAI pricing
 # before relying on them. USD per 1,000,000 tokens (per MTok).
 # ============================================================================
 version: 0.1.0
 effective_from: 2026-07-07
 currency: USD
 
-# --- Model prices (per MTok). PLACEHOLDER — confirm live pricing. ---
+# --- Model prices (per MTok). PLACEHOLDER — confirm against current OpenAI pricing. ---
+# Keys are provider-NEUTRAL TIERS, not model names. The concrete model each tier
+# resolves to is set by MODEL_FAST / MODEL_DEEP env vars (defaults: gpt-4o-mini,
+# gpt-4o). Changing generation = change the env var + these two prices. No code edit.
 models:
-  haiku:   { input_per_mtok: 1.00,  output_per_mtok: 5.00 }
-  sonnet:  { input_per_mtok: 3.00,  output_per_mtok: 15.00 }
-  opus:    { input_per_mtok: 15.00, output_per_mtok: 75.00 }
+  fast: { input_per_mtok: 0.15, output_per_mtok: 0.60 }   # gpt-4o-mini
+  deep: { input_per_mtok: 2.50, output_per_mtok: 10.00 }  # gpt-4o
 # Non-LLM costs to fold into unit economics (editable; approximate):
 external:
   whatsapp_conversation_utility_inr: 0.35   # 11za/Meta per templated conversation (verify with 11za)

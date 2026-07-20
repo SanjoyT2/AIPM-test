@@ -26,13 +26,13 @@ learners.forEach((l, i) => {
       confidence: 0.9, framework_version: "0.1.0",
     },
     critique: { policy: "formative", verdict: i === 1 ? "accept" : "skipped_by_policy", revisions: 0,
-      ...(i === 1 ? { critics: [{ model: "haiku", verdict: "accept", justification: "Lesson grounded in mastery profile." }] } : {}) },
+      ...(i === 1 ? { critics: [{ model: "gpt-4o-mini", verdict: "accept", justification: "Lesson grounded in mastery profile." }] } : {}) },
     guardrails: {
       input: [{ id: "pii_redaction", passed: true, severity: "block" }, { id: "consent_window", passed: true, severity: "block" }],
       output: [{ id: "output_schema", passed: true, severity: "block" }], blocked: false,
     },
     cost: { total_usd: 0.0042, total_tokens: 3600, total_ms: 1900,
-      calls: [{ role: "actor", model: "haiku", input_tokens: 2800, output_tokens: 800, usd: 0.0042, ms: 1900 }] },
+      calls: [{ role: "actor", model: "gpt-4o-mini", input_tokens: 2800, output_tokens: 800, usd: 0.0042, ms: 1900 }] },
     status: "completed",
   });
 });
@@ -51,7 +51,7 @@ txs.push({
     confidence: 0.84, framework_version: "0.1.0",
   },
   critique: { policy: "conversational", verdict: "accept", revisions: 1,
-    critics: [{ model: "sonnet", verdict: "accept", checks: ["spec_compliance"], justification: "Rewrite removed the direct answer; now coaching." }] },
+    critics: [{ model: "gpt-4o", verdict: "accept", checks: ["spec_compliance"], justification: "Rewrite removed the direct answer; now coaching." }] },
   guardrails: {
     input: [{ id: "pii_redaction", passed: true, severity: "block" }],
     output: [{ id: "mentor_no_direct_answers", passed: false, severity: "block", detail: "First draft contained the caption text verbatim — revised." },
@@ -59,10 +59,10 @@ txs.push({
     blocked: false,
   },
   cost: { total_usd: 0.0195, total_tokens: 5200, total_ms: 4100,
-    calls: [{ role: "actor", model: "haiku", input_tokens: 1900, output_tokens: 300, usd: 0.0034, ms: 900 },
-            { role: "guardrail", model: "haiku", input_tokens: 600, output_tokens: 40, usd: 0.0008, ms: 300 },
-            { role: "actor", model: "sonnet", input_tokens: 1700, output_tokens: 260, usd: 0.009, ms: 1700 },
-            { role: "critic", model: "sonnet", input_tokens: 600, output_tokens: 140, usd: 0.0063, ms: 1200 }] },
+    calls: [{ role: "actor", model: "gpt-4o-mini", input_tokens: 1900, output_tokens: 300, usd: 0.0034, ms: 900 },
+            { role: "guardrail", model: "gpt-4o-mini", input_tokens: 600, output_tokens: 40, usd: 0.0008, ms: 300 },
+            { role: "actor", model: "gpt-4o", input_tokens: 1700, output_tokens: 260, usd: 0.009, ms: 1700 },
+            { role: "critic", model: "gpt-4o", input_tokens: 600, output_tokens: 140, usd: 0.0063, ms: 1200 }] },
   status: "revised",
 });
 
@@ -81,8 +81,8 @@ txs.push({
   },
   critique: { policy: "summative", verdict: "accept", revisions: 0,
     critics: [
-      { model: "sonnet", verdict: "accept", checks: ["rubric_fidelity", "grounding"], justification: "Scores match anchors; transcript supports them." },
-      { model: "sonnet", verdict: "accept", checks: ["refutation"], justification: "Attempted refutation failed — scoring holds." },
+      { model: "gpt-4o", verdict: "accept", checks: ["rubric_fidelity", "grounding"], justification: "Scores match anchors; transcript supports them." },
+      { model: "gpt-4o", verdict: "accept", checks: ["refutation"], justification: "Attempted refutation failed — scoring holds." },
     ] },
   guardrails: {
     input: [{ id: "examiner_calibration_required", passed: true, severity: "block", detail: "rubric 0.1.0 calibration cal-001" }],
@@ -90,10 +90,10 @@ txs.push({
     blocked: false,
   },
   cost: { total_usd: 0.112, total_tokens: 21400, total_ms: 12800,
-    calls: [{ role: "actor", model: "sonnet", input_tokens: 6800, output_tokens: 1900, usd: 0.049, ms: 5200 },
-            { role: "actor", model: "sonnet", input_tokens: 4200, output_tokens: 800, usd: 0.0246, ms: 2900 },
-            { role: "critic", model: "sonnet", input_tokens: 3600, output_tokens: 500, usd: 0.0183, ms: 2400 },
-            { role: "critic", model: "sonnet", input_tokens: 4000, output_tokens: 420, usd: 0.0183, ms: 2300 }] },
+    calls: [{ role: "actor", model: "gpt-4o", input_tokens: 6800, output_tokens: 1900, usd: 0.049, ms: 5200 },
+            { role: "actor", model: "gpt-4o", input_tokens: 4200, output_tokens: 800, usd: 0.0246, ms: 2900 },
+            { role: "critic", model: "gpt-4o", input_tokens: 3600, output_tokens: 500, usd: 0.0183, ms: 2400 },
+            { role: "critic", model: "gpt-4o", input_tokens: 4000, output_tokens: 420, usd: 0.0183, ms: 2300 }] },
   status: "completed",
   links: { evidence_events_emitted: ["ev-priya-gate1-comm", "ev-priya-gate1-objection", "ev-priya-gate1-judgment", "ev-priya-gate1-integrity"] },
 });
@@ -113,17 +113,17 @@ txs.push({
   },
   critique: { policy: "summative", verdict: "escalate", revisions: 0,
     critics: [
-      { model: "sonnet", verdict: "accept", justification: "Score defensible per anchors." },
-      { model: "sonnet", verdict: "escalate", checks: ["refutation"], justification: "Async-sync delta 24 exceeds review threshold 20 — human must decide." },
+      { model: "gpt-4o", verdict: "accept", justification: "Score defensible per anchors." },
+      { model: "gpt-4o", verdict: "escalate", checks: ["refutation"], justification: "Async-sync delta 24 exceeds review threshold 20 — human must decide." },
     ] },
   guardrails: {
     input: [{ id: "examiner_calibration_required", passed: true, severity: "block" }],
     output: [{ id: "no_unversioned_score", passed: true, severity: "block" }], blocked: false,
   },
   cost: { total_usd: 0.094, total_tokens: 18200, total_ms: 11600,
-    calls: [{ role: "actor", model: "sonnet", input_tokens: 6100, output_tokens: 1500, usd: 0.0408, ms: 5000 },
-            { role: "critic", model: "sonnet", input_tokens: 3900, output_tokens: 600, usd: 0.0207, ms: 2600 },
-            { role: "critic", model: "sonnet", input_tokens: 5300, output_tokens: 800, usd: 0.0279, ms: 2900 }] },
+    calls: [{ role: "actor", model: "gpt-4o", input_tokens: 6100, output_tokens: 1500, usd: 0.0408, ms: 5000 },
+            { role: "critic", model: "gpt-4o", input_tokens: 3900, output_tokens: 600, usd: 0.0207, ms: 2600 },
+            { role: "critic", model: "gpt-4o", input_tokens: 5300, output_tokens: 800, usd: 0.0279, ms: 2900 }] },
   status: "escalated",
 });
 
@@ -146,7 +146,7 @@ txs.push({
     blocked: true,
   },
   cost: { total_usd: 0.0006, total_tokens: 450, total_ms: 240,
-    calls: [{ role: "guardrail", model: "haiku", input_tokens: 400, output_tokens: 50, usd: 0.0006, ms: 240 }] },
+    calls: [{ role: "guardrail", model: "gpt-4o-mini", input_tokens: 400, output_tokens: 50, usd: 0.0006, ms: 240 }] },
   status: "blocked",
 });
 
@@ -164,11 +164,11 @@ txs.push({
     confidence: 0.97, framework_version: "0.1.0",
   },
   critique: { policy: "planning", verdict: "accept", revisions: 0,
-    critics: [{ model: "sonnet", verdict: "accept", checks: ["consistency"], justification: "Steps complete, budgets set, DAG valid." }] },
+    critics: [{ model: "gpt-4o", verdict: "accept", checks: ["consistency"], justification: "Steps complete, budgets set, DAG valid." }] },
   guardrails: { input: [{ id: "input_schema", passed: true, severity: "block" }], output: [{ id: "output_schema", passed: true, severity: "block" }], blocked: false },
   cost: { total_usd: 0.0231, total_tokens: 4900, total_ms: 3400,
-    calls: [{ role: "actor", model: "sonnet", input_tokens: 2600, output_tokens: 500, usd: 0.0153, ms: 2100 },
-            { role: "critic", model: "sonnet", input_tokens: 1500, output_tokens: 300, usd: 0.0078, ms: 1300 }] },
+    calls: [{ role: "actor", model: "gpt-4o", input_tokens: 2600, output_tokens: 500, usd: 0.0153, ms: 2100 },
+            { role: "critic", model: "gpt-4o", input_tokens: 1500, output_tokens: 300, usd: 0.0078, ms: 1300 }] },
   status: "completed",
 });
 

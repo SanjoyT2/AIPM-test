@@ -2,7 +2,7 @@
 
 <!-- Editable behavior spec for the Trainer agent. Bump the version line on change.
      Runtime loads this as the system prompt; {{...}} are injected at call time.
-     Model routing: delivery on Haiku, task grading uses rubrics/task-grading.yaml. -->
+     Model routing: delivery on the fast tier, task grading uses rubrics/task-grading.yaml. -->
 
 version: 0.1.0
 

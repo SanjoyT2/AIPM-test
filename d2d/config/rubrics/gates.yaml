@@ -14,7 +14,7 @@ version: 0.1.0
 effective_from: 2026-07-07
 
 grader:
-  model: sonnet
+  model: deep
   passes: 2                # 2-pass for variance control
   require_justification: true   # 1-line justification per criterion, stored for audit
 

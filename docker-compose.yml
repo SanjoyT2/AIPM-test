@@ -6,7 +6,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgres://d2d:d2d@db:5432/d2d
-      # ANTHROPIC_API_KEY: set in .env or here to leave stub mode
+      # OPENAI_API_KEY: set in .env or here to leave stub mode
       # WA_WEBHOOK_SECRET / WA_API_BASE / WA_API_TOKEN: 11za credentials
     env_file:
       - path: .env

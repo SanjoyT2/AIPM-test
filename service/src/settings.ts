@@ -14,11 +14,16 @@ export const settings = {
   /** Postgres. docker-compose provides it locally; Render provides DATABASE_URL. */
   databaseUrl: process.env.DATABASE_URL ?? "",
 
-  /** LLM gateway. Empty key => stub mode (no live calls; deterministic canned output). */
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  /** LLM gateway (OpenAI). Empty key => stub mode (no live calls; deterministic canned output). */
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  /**
+   * Provider-neutral tiers. Defaults are conservative, widely-available models;
+   * override via MODEL_FAST / MODEL_DEEP to move to a newer generation without a
+   * code change (update cost-model.yaml prices to match).
+   */
   models: {
-    haiku: process.env.MODEL_HAIKU ?? "claude-haiku-4-5-20251001",
-    sonnet: process.env.MODEL_SONNET ?? "claude-sonnet-5",
+    fast: process.env.MODEL_FAST ?? "gpt-4o-mini",
+    deep: process.env.MODEL_DEEP ?? "gpt-4o",
   },
 
   /** WhatsApp via 11za. */

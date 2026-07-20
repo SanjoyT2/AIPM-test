@@ -61,7 +61,7 @@ export class Executor {
     }
 
     // ③ ACT + ④ CRITIQUE (bounded revise loop) --------------------------------
-    const policy = this.frameworks.critics?.policies?.[criticPolicy] ?? { mode: "always", panel: 1, model: "sonnet" };
+    const policy = this.frameworks.critics?.policies?.[criticPolicy] ?? { mode: "always", panel: 1, model: "deep" };
     const maxLoops = this.frameworks.critics?.limits?.max_revise_loops ?? 2;
     const shouldCritique =
       policy.mode === "always" || (policy.mode === "sample" && Math.random() < (policy.sample_rate ?? 0));
@@ -98,7 +98,7 @@ export class Executor {
       const panelVerdicts: CriticVerdict[] = [];
       for (let c = 0; c < panel; c++) {
         const critic = await this.gateway.complete({
-          tier: (policy.model === "haiku" ? "haiku" : "sonnet"),
+          tier: policy.model === "fast" ? "fast" : "deep",
           role: "critic",
           system:
             "You are a skeptical critic. Try to REFUTE the agent output: does the evidence/context support it? Is it within the agent's spec (checks: " +
