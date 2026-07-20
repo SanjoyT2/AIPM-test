@@ -28,6 +28,25 @@ async function main() {
   await ledger.init();
   const gateway = new LlmGateway(frameworks.costModel);
 
+  // Make the two "am I actually configured?" answers loud in the boot log — a
+  // silently-ephemeral ledger is the failure people notice a week too late.
+  if (ledger.storage === "memory") {
+    console.warn(
+      "[ledger] DATABASE_URL is not set — running IN-MEMORY. Transactions are lost on restart/redeploy. " +
+      "Set DATABASE_URL to a Postgres connection string to persist.",
+    );
+  } else {
+    console.info("[ledger] Postgres connected — transactions are durable.");
+  }
+  if (gateway.stubMode) {
+    console.warn(
+      "[gateway] OPENAI_API_KEY is not set — running in STUB mode. Agents return canned text and cost is simulated. " +
+      "Set OPENAI_API_KEY for live model calls.",
+    );
+  } else {
+    console.info(`[gateway] OpenAI live — fast=${settings.models.fast} deep=${settings.models.deep}`);
+  }
+
   // 3. Canonical schema validator for inbound transactions
   const validateTx = compileSchema(
     JSON.parse(fs.readFileSync(path.join(settings.schemaDir, "agent-transaction.schema.json"), "utf8")),
