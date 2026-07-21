@@ -21,6 +21,7 @@ import { MeasurementEngine } from "./measurement.js";
 import { settings } from "./settings.js";
 import type { AgentTransaction, EvidenceEvent } from "./types.js";
 import { compileSchema } from "./validation.js";
+import { WaClient } from "./wa-client.js";
 
 /**
  * Constant-time secret comparison. Both sides are hashed first so the digests are
@@ -72,10 +73,16 @@ async function main() {
     JSON.parse(fs.readFileSync(path.join(settings.schemaDir, "evidence-event.schema.json"), "utf8")),
   );
 
-  // 4. Executor + daily loop (plan-and-act runtime)
+  // 4. Executor + daily loop (plan-and-act runtime) + WhatsApp outbound
   const agents = loadAgents();
   const executor = new Executor(frameworks, gateway, ledger, validateTx as (tx: unknown) => boolean);
-  const dailyLoop = new DailyLoop(executor, agents, frameworks);
+  const wa = new WaClient();
+  if (wa.stubMode) {
+    console.warn("[wa] WA_API_TOKEN not set — outbound WhatsApp in STUB mode (messages are logged, not sent).");
+  } else {
+    console.info(`[wa] 11za outbound live — base=${settings.wa.apiBase}`);
+  }
+  const dailyLoop = new DailyLoop(executor, agents, frameworks, wa);
   dailyLoop.startSilenceSweep();
 
   const app = Fastify({ logger: true });
@@ -86,6 +93,7 @@ async function main() {
     env: settings.env,
     storage: ledger.storage,
     gateway: gateway.stubMode ? "stub" : "live",
+    whatsapp: wa.stubMode ? "stub" : "live",
     framework_versions: frameworks.versions,
   }));
 
