@@ -1,6 +1,8 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import Costs from "./views/Costs";
 import Frameworks from "./views/Frameworks";
+import LearnerDetail from "./views/LearnerDetail";
+import Learners from "./views/Learners";
 import Overview from "./views/Overview";
 import TransactionDetail from "./views/TransactionDetail";
 import Transactions from "./views/Transactions";
@@ -18,6 +20,7 @@ export default function App() {
         </div>
         <nav className="nav">
           <NavLink to="/" end>Overview</NavLink>
+          <NavLink to="/learners">Learners</NavLink>
           <NavLink to="/transactions">Transactions</NavLink>
           <NavLink to="/costs">Cost train</NavLink>
           <NavLink to="/frameworks">Frameworks</NavLink>
@@ -26,6 +29,8 @@ export default function App() {
       <main className="main">
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/learners" element={<Learners />} />
+          <Route path="/learners/:id" element={<LearnerDetail />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/transactions/:id" element={<TransactionDetail />} />
           <Route path="/costs" element={<Costs />} />

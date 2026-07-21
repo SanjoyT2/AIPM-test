@@ -2,22 +2,25 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, fmtTime, fmtUsd } from "../api";
 import { ActionCard, Empty, StatusPill, VerdictPill } from "../components";
-import type { AgentTransaction, Health } from "../types";
+import type { AgentTransaction, Health, LearnerSummary } from "../types";
 
 /** The operator's "4 cards, 4 clicks" — decisions first, charts never. */
 export default function Overview() {
   const [health, setHealth] = useState<Health | null>(null);
   const [txs, setTxs] = useState<AgentTransaction[]>([]);
+  const [learners, setLearners] = useState<LearnerSummary[]>([]);
   const nav = useNavigate();
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
     api.transactions({ limit: 500 }).then(setTxs).catch(() => setTxs([]));
+    api.learners().then(setLearners).catch(() => setLearners([]));
   }, []);
 
   const escalated = txs.filter((t) => t.status === "escalated").length;
   const blocked = txs.filter((t) => t.status === "blocked" || t.guardrails.blocked).length;
   const spend = txs.reduce((a, t) => a + t.cost.total_usd, 0);
+  const integrityReview = learners.reduce((a, l) => a + l.integrity_review, 0);
   const recent = txs.slice(0, 12);
 
   return (
@@ -27,6 +30,7 @@ export default function Overview() {
 
       <div className="cards">
         <ActionCard label="Escalations" value={escalated} hint="Resolve in queue" to="/transactions?status=escalated" tone={escalated ? "alert" : undefined} />
+        <ActionCard label="Integrity to review" value={integrityReview} hint="Async-vs-live mismatch" to="/learners" tone={integrityReview ? "bad" : undefined} />
         <ActionCard label="Guardrail blocks" value={blocked} hint="See what fired" to="/transactions?status=blocked" tone={blocked ? "bad" : undefined} />
         <ActionCard label="Spend (ledger)" value={fmtUsd(spend)} hint="Open the cost train" to="/costs" />
         <ActionCard

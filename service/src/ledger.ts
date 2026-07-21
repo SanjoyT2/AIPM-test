@@ -62,6 +62,11 @@ export class Ledger {
     return this.pool ? "postgres" : "memory";
   }
 
+  /** Shared with the evidence store so both use one connection pool (free-tier cap). */
+  getPool(): pg.Pool | null {
+    return this.pool;
+  }
+
   async init(): Promise<void> {
     if (!settings.databaseUrl) return; // memory mode — intentional for local dev
     const ssl = needsSsl(settings.databaseUrl);

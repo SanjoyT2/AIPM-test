@@ -1,4 +1,4 @@
-import type { AgentTransaction, CostRollupRow, Health } from "./types";
+import type { AgentTransaction, CostRollupRow, Health, LearnerMeasurement, LearnerSummary } from "./types";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -20,6 +20,8 @@ export const api = {
   costRollup: (by: string) => get<CostRollupRow[]>(`/api/costs/rollup?by=${by}`),
   frameworkVersions: () => get<Record<string, string>>("/api/config/frameworks"),
   framework: (name: string) => get<unknown>(`/api/config/frameworks/${name}`),
+  learners: () => get<LearnerSummary[]>("/api/learners"),
+  learner: (id: string) => get<LearnerMeasurement>(`/api/learners/${encodeURIComponent(id)}`),
 };
 
 export const fmtUsd = (n: number) =>

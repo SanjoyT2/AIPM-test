@@ -61,3 +61,45 @@ export interface Health {
   gateway: string;
   framework_versions: Record<string, string>;
 }
+
+export interface LearnerSummary {
+  learner_id: string;
+  composite: number;
+  rank_band: string;
+  rank_band_id: string;
+  integrity_review: number;
+  evidence_count: number;
+  competencies_at_threshold: number;
+  competencies_total: number;
+}
+
+export interface EvidenceEvent {
+  event_id: string;
+  learner_id: string;
+  timestamp: string;
+  source: string;
+  competency_id: string;
+  activity_type: string;
+  modality: "async" | "sync";
+  stakes: "formative" | "summative";
+  score: number;
+  scale_max: number;
+}
+
+export interface LearnerMeasurement {
+  learner_id: string;
+  mastery: { competency_id: string; name: string; estimate: number; at_threshold: boolean; threshold: number; evidence_count: number }[];
+  composite: {
+    base: number;
+    integrity_multiplier: number;
+    final: number;
+    rank_band: string;
+    rank_band_id: string;
+    formula_version: string;
+    framework_version: string;
+    sources: { source: string; weight: number; score: number; evidence_count: number }[];
+  };
+  integrity: { competency_id: string; delta: number; async_score: number; sync_score: number; review: boolean }[];
+  evidence_count: number;
+  evidence: EvidenceEvent[];
+}

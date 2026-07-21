@@ -13,11 +13,13 @@ import Fastify from "fastify";
 import { loadAgents } from "./agents.js";
 import { loadFrameworks } from "./config-loader.js";
 import { DailyLoop } from "./daily-loop.js";
+import { EvidenceStore } from "./evidence-store.js";
 import { Executor } from "./executor.js";
 import { LlmGateway } from "./gateway.js";
 import { Ledger } from "./ledger.js";
+import { MeasurementEngine } from "./measurement.js";
 import { settings } from "./settings.js";
-import type { AgentTransaction } from "./types.js";
+import type { AgentTransaction, EvidenceEvent } from "./types.js";
 import { compileSchema } from "./validation.js";
 
 /**
@@ -35,9 +37,12 @@ async function main() {
   // 1. Frameworks (throws on invalid config — refuse to boot)
   const frameworks = loadFrameworks();
 
-  // 2. Ledger + gateway
+  // 2. Ledger + gateway + evidence store (LRS) + measurement engine
   const ledger = new Ledger();
   await ledger.init();
+  const evidence = new EvidenceStore();
+  await evidence.init(ledger.getPool());
+  const measurement = new MeasurementEngine(frameworks);
   const gateway = new LlmGateway(frameworks.costModel);
 
   // Make the two "am I actually configured?" answers loud in the boot log — a
@@ -59,9 +64,12 @@ async function main() {
     console.info(`[gateway] OpenAI live — fast=${settings.models.fast} deep=${settings.models.deep}`);
   }
 
-  // 3. Canonical schema validator for inbound transactions
+  // 3. Canonical schema validators for inbound records
   const validateTx = compileSchema(
     JSON.parse(fs.readFileSync(path.join(settings.schemaDir, "agent-transaction.schema.json"), "utf8")),
+  );
+  const validateEv = compileSchema(
+    JSON.parse(fs.readFileSync(path.join(settings.schemaDir, "evidence-event.schema.json"), "utf8")),
   );
 
   // 4. Executor + daily loop (plan-and-act runtime)
@@ -130,6 +138,58 @@ async function main() {
       return reply.code(400).send({ error: "by must be one of agent|subject|plan|status" });
     }
     return ledger.costRollup(by as "agent" | "subject" | "plan" | "status");
+  });
+
+  // ---- Evidence events (Learner Record Store) ----
+  app.post("/api/evidence", async (req, reply) => {
+    const body = req.body as EvidenceEvent;
+    if (!validateEv(body)) {
+      return reply.code(422).send({ error: "schema validation failed", details: validateEv.errors });
+    }
+    await evidence.append(body);
+    return reply.code(201).send({ event_id: body.event_id });
+  });
+
+  app.get("/api/evidence", async (req) => {
+    const { learner } = req.query as { learner?: string };
+    return learner ? evidence.forLearner(learner) : evidence.all();
+  });
+
+  // ---- Measurement: learners + per-learner mastery/composite (the credential) ----
+  // asOf is fixed per request so a score is reproducible; defaults to now, but a
+  // caller can pass ?asOf=ISO to recompute a historical snapshot deterministically.
+  const asOfFrom = (q: Record<string, string | undefined>) =>
+    q.asOf ? new Date(q.asOf).getTime() : Date.now();
+
+  app.get("/api/learners", async (req) => {
+    const q = req.query as Record<string, string | undefined>;
+    const asOf = asOfFrom(q);
+    const ids = await evidence.learnerIds();
+    const all = await evidence.all();
+    return ids
+      .map((id) => {
+        const m = measurement.compute(id, all, { asOf });
+        return {
+          learner_id: id,
+          composite: m.composite.final,
+          rank_band: m.composite.rank_band,
+          rank_band_id: m.composite.rank_band_id,
+          integrity_review: m.integrity.filter((f) => f.review).length,
+          evidence_count: m.evidence_count,
+          competencies_at_threshold: m.mastery.filter((c) => c.at_threshold).length,
+          competencies_total: m.mastery.length,
+        };
+      })
+      .sort((a, b) => b.composite - a.composite); // leaderboard order
+  });
+
+  app.get("/api/learners/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as Record<string, string | undefined>;
+    const evs = await evidence.forLearner(id);
+    if (!evs.length) return reply.code(404).send({ error: "no evidence for learner" });
+    const m = measurement.compute(id, evs, { asOf: asOfFrom(q) });
+    return { ...m, evidence: evs };
   });
 
   // ---- Cockpit dashboard (built SPA, when present) ----
