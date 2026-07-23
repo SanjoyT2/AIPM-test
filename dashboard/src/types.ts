@@ -100,6 +100,7 @@ export interface LearnerMeasurement {
     sources: { source: string; weight: number; score: number; evidence_count: number }[];
   };
   integrity: { competency_id: string; delta: number; async_score: number; sync_score: number; review: boolean }[];
+  integrity_decisions?: { competency_id: string; decision: string }[];
   evidence_count: number;
   evidence: EvidenceEvent[];
 }

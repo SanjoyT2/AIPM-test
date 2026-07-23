@@ -9,13 +9,23 @@ export default function LearnerDetail() {
   const { id } = useParams<{ id: string }>();
   const [m, setM] = useState<LearnerMeasurement | null>(null);
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
 
-  useEffect(() => { if (id) api.learner(id).then(setM).catch((e) => setErr(String(e))); }, [id]);
+  const load = () => { if (id) api.learner(id).then(setM).catch((e) => setErr(String(e))); };
+  useEffect(load, [id]);
+
+  const decide = async (competency: string, decision: "cleared" | "upheld") => {
+    if (!id) return;
+    setBusy(competency + decision);
+    try { await api.resolveIntegrity(id, competency, decision); load(); }
+    finally { setBusy(""); }
+  };
 
   if (err) return <div className="empty">{err}</div>;
   if (!m) return <div className="sub">Loading…</div>;
 
   const c = m.composite;
+  const clearedSet = new Set((m.integrity_decisions ?? []).filter((d) => d.decision === "cleared").map((d) => d.competency_id));
 
   return (
     <>
@@ -53,19 +63,27 @@ export default function LearnerDetail() {
       {m.integrity.length > 0 && (
         <Panel title="Integrity — async vs. sync (looks-good-on-paper vs. can-explain-live)">
           <table>
-            <thead><tr><th>Competency</th><th className="num">Async</th><th className="num">Live</th><th className="num">Delta</th><th>Status</th></tr></thead>
+            <thead><tr><th>Competency</th><th className="num">Async</th><th className="num">Live</th><th className="num">Delta</th><th>Status</th><th>Decision</th></tr></thead>
             <tbody>
-              {m.integrity.map((f) => (
-                <tr key={f.competency_id}>
-                  <td className="mono">{f.competency_id}</td>
-                  <td className="num">{f.async_score.toFixed(0)}</td>
-                  <td className="num">{f.sync_score.toFixed(0)}</td>
-                  <td className="num" style={{ color: f.review ? "var(--danger)" : "var(--warn)" }}>+{f.delta.toFixed(1)}</td>
-                  <td>{f.review ? <span className="pill danger">review</span> : <span className="pill warn">minor</span>}</td>
-                </tr>
-              ))}
+              {m.integrity.map((f) => {
+                const cleared = clearedSet.has(f.competency_id);
+                return (
+                  <tr key={f.competency_id}>
+                    <td className="mono">{f.competency_id}</td>
+                    <td className="num">{f.async_score.toFixed(0)}</td>
+                    <td className="num">{f.sync_score.toFixed(0)}</td>
+                    <td className="num" style={{ color: f.review ? "var(--danger)" : "var(--warn)" }}>+{f.delta.toFixed(1)}</td>
+                    <td>{cleared ? <span className="pill ok">cleared</span> : f.review ? <span className="pill danger">review</span> : <span className="pill warn">minor</span>}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button className="chip" disabled={!!busy} onClick={() => decide(f.competency_id, "cleared")}>Clear</button>{" "}
+                      <button className="chip" disabled={!!busy} onClick={() => decide(f.competency_id, "upheld")}>Uphold</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+          <div className="sub" style={{ marginTop: 8 }}>Clearing a flag removes its penalty and recomputes the composite immediately. Every decision is recorded.</div>
         </Panel>
       )}
 

@@ -82,6 +82,8 @@ pre.code { background: var(--bg); border: 1px solid var(--line); border-radius: 
 .chip { padding: 5px 12px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--ink2); font-size: 12.5px; cursor: pointer; font-family: var(--font); }
 .chip:hover { border-color: var(--accent); color: var(--ink); }
 .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.chip:disabled { opacity: 0.4; cursor: default; }
+button.chip:active { transform: scale(0.97); }
 
 .kv { display: grid; grid-template-columns: 160px 1fr; gap: 6px 14px; font-size: 13px; }
 .kv .k { color: var(--muted); }

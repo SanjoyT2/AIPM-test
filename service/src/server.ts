@@ -18,6 +18,7 @@ import { Executor } from "./executor.js";
 import { LlmGateway } from "./gateway.js";
 import { Ledger } from "./ledger.js";
 import { MeasurementEngine } from "./measurement.js";
+import { OperatorActionStore } from "./operator-actions.js";
 import { settings } from "./settings.js";
 import type { AgentTransaction, EvidenceEvent } from "./types.js";
 import { compileSchema } from "./validation.js";
@@ -43,6 +44,8 @@ async function main() {
   await ledger.init();
   const evidence = new EvidenceStore();
   await evidence.init(ledger.getPool());
+  const operatorActions = new OperatorActionStore();
+  await operatorActions.init(ledger.getPool());
   const measurement = new MeasurementEngine(frameworks);
   const gateway = new LlmGateway(frameworks.costModel);
 
@@ -174,21 +177,21 @@ async function main() {
     const asOf = asOfFrom(q);
     const ids = await evidence.learnerIds();
     const all = await evidence.all();
-    return ids
-      .map((id) => {
-        const m = measurement.compute(id, all, { asOf });
-        return {
-          learner_id: id,
-          composite: m.composite.final,
-          rank_band: m.composite.rank_band,
-          rank_band_id: m.composite.rank_band_id,
-          integrity_review: m.integrity.filter((f) => f.review).length,
-          evidence_count: m.evidence_count,
-          competencies_at_threshold: m.mastery.filter((c) => c.at_threshold).length,
-          competencies_total: m.mastery.length,
-        };
-      })
-      .sort((a, b) => b.composite - a.composite); // leaderboard order
+    const rows = await Promise.all(ids.map(async (id) => {
+      const cleared = await operatorActions.clearedIntegrityFor(id);
+      const m = measurement.compute(id, all, { asOf, clearedIntegrity: cleared });
+      return {
+        learner_id: id,
+        composite: m.composite.final,
+        rank_band: m.composite.rank_band,
+        rank_band_id: m.composite.rank_band_id,
+        integrity_review: m.integrity.filter((f) => f.review).length,
+        evidence_count: m.evidence_count,
+        competencies_at_threshold: m.mastery.filter((c) => c.at_threshold).length,
+        competencies_total: m.mastery.length,
+      };
+    }));
+    return rows.sort((a, b) => b.composite - a.composite); // leaderboard order
   });
 
   app.get("/api/learners/:id", async (req, reply) => {
@@ -196,9 +199,42 @@ async function main() {
     const q = req.query as Record<string, string | undefined>;
     const evs = await evidence.forLearner(id);
     if (!evs.length) return reply.code(404).send({ error: "no evidence for learner" });
-    const m = measurement.compute(id, evs, { asOf: asOfFrom(q) });
-    return { ...m, evidence: evs };
+    const cleared = await operatorActions.clearedIntegrityFor(id);
+    const m = measurement.compute(id, evs, { asOf: asOfFrom(q), clearedIntegrity: cleared });
+    const decisions = [...cleared].map((c) => ({ competency_id: c, decision: "cleared" }));
+    return { ...m, evidence: evs, integrity_decisions: decisions };
   });
+
+  // ---- Operator actions (task #5) — make the Cockpit act, not just read ----
+  app.post("/api/learners/:id/integrity/:competency", async (req, reply) => {
+    const { id, competency } = req.params as { id: string; competency: string };
+    const { decision, operator = "operator", note } = (req.body ?? {}) as { decision?: string; operator?: string; note?: string };
+    if (decision !== "cleared" && decision !== "upheld") {
+      return reply.code(400).send({ error: "decision must be 'cleared' or 'upheld'" });
+    }
+    const evs = await evidence.forLearner(id);
+    if (!evs.some((e) => e.competency_id === competency)) {
+      return reply.code(404).send({ error: "no evidence for that learner/competency" });
+    }
+    const action = await operatorActions.record({
+      type: "integrity", target_id: `${id}:${competency}`, learner_id: id, competency_id: competency, decision, operator, note,
+    });
+    return reply.code(201).send(action);
+  });
+
+  app.post("/api/transactions/:id/resolve", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { decision, operator = "operator", note } = (req.body ?? {}) as { decision?: string; operator?: string; note?: string };
+    if (decision !== "acknowledged" && decision !== "overridden") {
+      return reply.code(400).send({ error: "decision must be 'acknowledged' or 'overridden'" });
+    }
+    const tx = await ledger.get(id);
+    if (!tx) return reply.code(404).send({ error: "transaction not found" });
+    const action = await operatorActions.record({ type: "escalation", target_id: id, learner_id: tx.subject_id, decision, operator, note });
+    return reply.code(201).send(action);
+  });
+
+  app.get("/api/actions", async () => operatorActions.all());
 
   // ---- Cockpit dashboard (built SPA, when present) ----
   if (fs.existsSync(path.join(settings.dashboardDir, "index.html"))) {

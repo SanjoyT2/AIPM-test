@@ -22,7 +22,17 @@ export const api = {
   framework: (name: string) => get<unknown>(`/api/config/frameworks/${name}`),
   learners: () => get<LearnerSummary[]>("/api/learners"),
   learner: (id: string) => get<LearnerMeasurement>(`/api/learners/${encodeURIComponent(id)}`),
+  resolveIntegrity: (learner: string, competency: string, decision: "cleared" | "upheld") =>
+    post(`/api/learners/${encodeURIComponent(learner)}/integrity/${encodeURIComponent(competency)}`, { decision }),
+  resolveEscalation: (txId: string, decision: "acknowledged" | "overridden") =>
+    post(`/api/transactions/${encodeURIComponent(txId)}/resolve`, { decision }),
 };
+
+async function post<T = unknown>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText} on ${path}`);
+  return r.json() as Promise<T>;
+}
 
 export const fmtUsd = (n: number) =>
   n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4).replace(/0+$/, "").replace(/\.$/, ".0")}`;
