@@ -17,7 +17,6 @@ import { EvidenceStore } from "./evidence-store.js";
 import { Executor } from "./executor.js";
 import { LlmGateway } from "./gateway.js";
 import { Ledger } from "./ledger.js";
-import { GuardrailEngine } from "./guardrails.js";
 import { MeasurementEngine } from "./measurement.js";
 import { OperatorActionStore } from "./operator-actions.js";
 import { ResourceStore } from "./resource-store.js";
@@ -92,7 +91,16 @@ async function main() {
     console.info(`[wa] 11za outbound live — base=${settings.wa.apiBase}`);
   }
   const dailyLoop = new DailyLoop(executor, agents, frameworks, wa, resources);
-  const guardrailEngine = new GuardrailEngine(frameworks.guardrails);
+
+  // Merged guardrail-rule catalog: built-in config rules (now plain-English,
+  // LLM-enforced) + user-created custom rules. Used to validate sets + for the UI.
+  const configRuleDefs = () => Object.entries<any>(frameworks.guardrails.rules ?? {}).map(([id, r]) => ({
+    rule_id: id, name: id, description: r.detail ?? id, severity: r.severity ?? "warn", source: "built-in" as const,
+  }));
+  const ruleCatalog = async () => {
+    const custom = (await resources.listRules()).map((r) => ({ rule_id: r.rule_id, name: r.name, description: r.description, severity: r.severity, source: "custom" as const }));
+    return [...configRuleDefs(), ...custom];
+  };
   dailyLoop.startSilenceSweep();
 
   const app = Fastify({ logger: true });
@@ -325,10 +333,20 @@ async function main() {
     return resources.retrieve(agent ?? "", query ?? "", 5);
   });
 
-  // ---- Guardrail sets (standalone, attachable) ----
-  app.get("/api/guardrails/catalog", async () => ({
-    rules: frameworks.guardrails.rules, all_rule_ids: guardrailEngine.allRuleIds(),
-  }));
+  // ---- Guardrails: plain-English rules (LLM-enforced) + sets, both attachable ----
+  app.get("/api/guardrails/catalog", async () => {
+    const rules = await ruleCatalog();
+    return { rules, all_rule_ids: rules.map((r) => r.rule_id) };
+  });
+  // Create a NEW rule by typing a sentence — no code (answers "how do I create new").
+  app.post("/api/guardrails/rules", async (req, reply) => {
+    const { name, description, severity = "block" } = (req.body ?? {}) as { name?: string; description?: string; severity?: string };
+    if (!name || !description) return reply.code(400).send({ error: "name and description (the plain-English rule) are required" });
+    if (!["block", "escalate", "warn"].includes(severity)) return reply.code(400).send({ error: "severity must be block|escalate|warn" });
+    return reply.code(201).send(await resources.createRule(name, description, severity as "block" | "escalate" | "warn"));
+  });
+  app.delete("/api/guardrails/rules/:id", async (req) => { await resources.deleteRule((req.params as { id: string }).id); return { ok: true }; });
+
   app.get("/api/guardrails/sets", async () => {
     const sets = await resources.listGuardrailSets();
     return Promise.all(sets.map(async (s) => ({ ...s, attached_agents: await resources.agentsForResource("guardrail", s.gr_id) })));
@@ -336,7 +354,7 @@ async function main() {
   app.post("/api/guardrails/sets", async (req, reply) => {
     const { name, rule_ids, description } = (req.body ?? {}) as { name?: string; rule_ids?: string[]; description?: string };
     if (!name || !Array.isArray(rule_ids) || !rule_ids.length) return reply.code(400).send({ error: "name and non-empty rule_ids are required" });
-    const known = new Set(guardrailEngine.allRuleIds());
+    const known = new Set((await ruleCatalog()).map((r) => r.rule_id));
     const unknown = rule_ids.filter((r) => !known.has(r));
     if (unknown.length) return reply.code(400).send({ error: `unknown rule ids: ${unknown.join(", ")}` });
     return reply.code(201).send(await resources.createGuardrailSet(name, rule_ids, description));

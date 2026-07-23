@@ -11,6 +11,7 @@
  */
 import type { AgentSpec } from "./agents.js";
 import type { Executor } from "./executor.js";
+import type { GuardrailRule } from "./guardrails.js";
 import type { ResourceStore } from "./resource-store.js";
 import type { AgentTransaction, Plan, PlanStep } from "./types.js";
 import type { WaClient } from "./wa-client.js";
@@ -60,7 +61,7 @@ export class DailyLoop {
     const baseRules: string[] = this.frameworks.guardrails.policies?.[agent.guardrailPolicy]
       ?? this.frameworks.guardrails.policies?.default ?? [];
     const attachedRules = await this.resources.agentAttachedGuardrailRuleIds(agentName);
-    const guardrailRuleIds = [...new Set([...baseRules, ...attachedRules])];
+    const guardrailRules = await this.resolveGuardrailRules([...new Set([...baseRules, ...attachedRules])]);
 
     const date = new Date().toISOString().slice(0, 10);
     const plan: Plan = { plan_id: `plan-${agentName}-${subjectId}-${date}`, goal: `Run ${agentName}`, altitude: "micro", subject_id: subjectId, created_by: "daily-loop@0.1.0", steps: [] };
@@ -72,9 +73,23 @@ export class DailyLoop {
       sources: [...(opts.baseSources ?? []), ...hits.map((h) => `kb:${h.kb_id}/${h.document_id}`)],
       windowOpen: opts.windowOpen ?? true,
       frameworkVersion: this.frameworks.versions.competency_framework,
-      guardrailRuleIds,
+      guardrailRules,
     });
     return { tx, retrieved: hits.map((h) => ({ document_id: h.document_id, title: h.title, score: h.score })) };
+  }
+
+  /** Resolve rule ids to plain-English rule defs: config catalog ∪ user-created rules. */
+  private async resolveGuardrailRules(ids: string[]): Promise<GuardrailRule[]> {
+    const cfg = this.frameworks.guardrails.rules ?? {};
+    const custom = new Map((await this.resources.listRules()).map((r) => [r.rule_id, r]));
+    const out: GuardrailRule[] = [];
+    for (const id of ids) {
+      const c = cfg[id];
+      if (c) { out.push({ id, name: id, description: c.detail ?? id, severity: c.severity ?? "warn" }); continue; }
+      const u = custom.get(id);
+      if (u) out.push({ id, name: u.name, description: u.description, severity: u.severity });
+    }
+    return out;
   }
 
   windowOpen(learnerId: string): boolean {

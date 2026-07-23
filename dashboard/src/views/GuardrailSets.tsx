@@ -1,45 +1,71 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Empty, Panel } from "../components";
-import type { GuardrailSet } from "../types";
+import type { GuardrailRuleDef, GuardrailSet } from "../types";
 
-/** Standalone guardrail sets — bundles of catalog rules, attachable to many agents. */
+/**
+ * Guardrails — plain-English rules, enforced by an LLM critic pass (nothing
+ * deterministic). Create a rule by typing a sentence; bundle rules into sets;
+ * attach sets to agents from the Studio.
+ */
 export default function GuardrailSets() {
   const [sets, setSets] = useState<GuardrailSet[]>([]);
-  const [catalog, setCatalog] = useState<{ id: string; severity: string; stage: string; detail?: string }[]>([]);
-  const [name, setName] = useState("");
+  const [rules, setRules] = useState<GuardrailRuleDef[]>([]);
+  const [setName, setSetName] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const load = () => api.guardrailSets().then(setSets).catch(() => setSets([]));
-  useEffect(() => {
-    load();
-    api.guardrailCatalog().then((c) => setCatalog(c.all_rule_ids.map((id) => ({ id, ...c.rules[id] })))).catch(() => setCatalog([]));
-  }, []);
+  // new rule form
+  const [rName, setRName] = useState("");
+  const [rDesc, setRDesc] = useState("");
+  const [rSev, setRSev] = useState("block");
 
-  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const create = async () => {
-    if (!name.trim() || picked.size === 0) return;
-    await api.createGuardrailSet(name.trim(), [...picked]);
-    setName(""); setPicked(new Set()); load();
+  const loadSets = () => api.guardrailSets().then(setSets).catch(() => setSets([]));
+  const loadRules = () => api.guardrailCatalog().then((c) => setRules(c.rules)).catch(() => setRules([]));
+  useEffect(() => { loadSets(); loadRules(); }, []);
+
+  const createRule = async () => {
+    if (!rName.trim() || !rDesc.trim()) return;
+    await api.createRule(rName.trim(), rDesc.trim(), rSev);
+    setRName(""); setRDesc(""); loadRules();
   };
-  const del = async (id: string) => { await api.deleteGuardrailSet(id); load(); };
+  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const createSet = async () => {
+    if (!setName.trim() || picked.size === 0) return;
+    await api.createGuardrailSet(setName.trim(), [...picked]);
+    setSetName(""); setPicked(new Set()); loadSets();
+  };
 
   return (
     <>
       <h1>Guardrails</h1>
-      <div className="sub">Compose a set of rules once, attach it to any agents from the Studio. Rules come from the guardrails config catalog.</div>
+      <div className="sub">Plain-English rules, enforced by an LLM critic on every agent message — no code. Bundle rules into a set, attach the set to agents from the Studio.</div>
 
-      <Panel title="Create a guardrail set">
-        <input className="chip" style={{ width: 240, marginBottom: 10 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="set name (e.g. No hype)" />
+      <Panel title="Create a rule — just describe it">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <input className="chip" style={{ width: 190 }} value={rName} onChange={(e) => setRName(e.target.value)} placeholder="short name (e.g. No salary figures)" />
+          <input className="chip" style={{ flex: 1, minWidth: 300 }} value={rDesc} onChange={(e) => setRDesc(e.target.value)}
+            placeholder="Block any message that promises a specific salary or income figure." onKeyDown={(e) => e.key === "Enter" && createRule()} />
+          <select className="chip" value={rSev} onChange={(e) => setRSev(e.target.value)} style={{ width: 110 }}>
+            <option value="block">block</option>
+            <option value="escalate">escalate</option>
+            <option value="warn">warn</option>
+          </select>
+          <button className="chip" onClick={createRule} disabled={!rName.trim() || !rDesc.trim()}>Create rule</button>
+        </div>
+      </Panel>
+
+      <Panel title="Create a set — bundle rules to attach together">
+        <input className="chip" style={{ width: 240, marginBottom: 10 }} value={setName} onChange={(e) => setSetName(e.target.value)} placeholder="set name (e.g. Trainer safety)" />
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {catalog.map((r) => (
-            <button key={r.id} className={`chip ${picked.has(r.id) ? "on" : ""}`} title={`${r.stage} · ${r.severity}${r.detail ? " · " + r.detail : ""}`} onClick={() => togglePick(r.id)}>
-              {r.id}
+          {rules.map((r) => (
+            <button key={r.rule_id} className={`chip ${picked.has(r.rule_id) ? "on" : ""}`} title={`${r.severity} · ${r.description}`} onClick={() => togglePick(r.rule_id)}>
+              {r.name}{r.source === "custom" && <span style={{ color: "var(--accent)" }}> ●</span>}
             </button>
           ))}
         </div>
         <div style={{ marginTop: 10 }}>
-          <button className="chip" onClick={create} disabled={!name.trim() || picked.size === 0}>Create set ({picked.size} rules)</button>
+          <button className="chip" onClick={createSet} disabled={!setName.trim() || picked.size === 0}>Create set ({picked.size} rules)</button>
+          <span className="sub" style={{ marginLeft: 8 }}>● = your custom rule</span>
         </div>
       </Panel>
 
@@ -50,9 +76,9 @@ export default function GuardrailSets() {
             {sets.map((s) => (
               <tr key={s.gr_id}>
                 <td>{s.name}</td>
-                <td>{s.rule_ids.map((r) => <span key={r} className="pill" style={{ marginRight: 4 }}>{r}</span>)}</td>
+                <td>{s.rule_ids.map((r) => { const d = rules.find((x) => x.rule_id === r); return <span key={r} className="pill" style={{ marginRight: 4 }} title={d?.description}>{d?.name ?? r}</span>; })}</td>
                 <td>{(s.attached_agents ?? []).length ? (s.attached_agents ?? []).map((x) => <span key={x} className="pill accent" style={{ marginRight: 4 }}>{x}</span>) : <span className="sub">none</span>}</td>
-                <td><button className="chip" onClick={() => del(s.gr_id)}>Delete</button></td>
+                <td><button className="chip" onClick={async () => { await api.deleteGuardrailSet(s.gr_id); loadSets(); }}>Delete</button></td>
               </tr>
             ))}
           </tbody>

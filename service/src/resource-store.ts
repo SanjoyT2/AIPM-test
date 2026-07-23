@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS guardrail_sets (
   gr_id TEXT PRIMARY KEY, doc JSONB NOT NULL, ts TIMESTAMPTZ NOT NULL,
   name TEXT GENERATED ALWAYS AS (doc->>'name') STORED
 );
+CREATE TABLE IF NOT EXISTS guardrail_rules (
+  rule_id TEXT PRIMARY KEY, doc JSONB NOT NULL, ts TIMESTAMPTZ NOT NULL
+);
 CREATE TABLE IF NOT EXISTS agent_resources (
   agent_name TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL,
   ts TIMESTAMPTZ NOT NULL,
@@ -44,6 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_ar_res   ON agent_resources (resource_type, resou
 export interface KnowledgeBase { kb_id: string; name: string; description?: string; ts: string; }
 export interface KbDocument { document_id: string; kb_id: string; title: string; content: string; ts: string; }
 export interface GuardrailSet { gr_id: string; name: string; description?: string; rule_ids: string[]; ts: string; }
+export interface GuardrailRuleDef { rule_id: string; name: string; description: string; severity: "block" | "escalate" | "warn"; source: "custom"; ts: string; }
 export interface RetrievedDoc extends KbDocument { score: number; }
 
 const STOP = new Set("the a an and or of to in for on with is are be as at by it this that your you we our".split(" "));
@@ -51,7 +55,7 @@ const tokenize = (s: string) => (s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).f
 
 export class ResourceStore {
   private pool: pg.Pool | null = null;
-  private mem = { kbs: [] as KnowledgeBase[], docs: [] as KbDocument[], sets: [] as GuardrailSet[],
+  private mem = { kbs: [] as KnowledgeBase[], docs: [] as KbDocument[], sets: [] as GuardrailSet[], rules: [] as GuardrailRuleDef[],
     links: [] as { agent_name: string; resource_type: string; resource_id: string; ts: string }[] };
 
   async init(pool: pg.Pool | null): Promise<void> {
@@ -121,6 +125,22 @@ export class ResourceStore {
       this.mem.sets = this.mem.sets.filter((s) => s.gr_id !== id);
       this.mem.links = this.mem.links.filter((l) => !(l.resource_type === "guardrail" && l.resource_id === id));
     }
+  }
+
+  // ---- Custom guardrail rules (plain-English, user-created, LLM-enforced) ----
+  async createRule(name: string, description: string, severity: "block" | "escalate" | "warn"): Promise<GuardrailRuleDef> {
+    const r: GuardrailRuleDef = { rule_id: `rule-${randomUUID()}`, name, description, severity, source: "custom", ts: this.now() };
+    if (this.pool) await this.pool.query("INSERT INTO guardrail_rules (rule_id, doc, ts) VALUES ($1,$2,$3)", [r.rule_id, JSON.stringify(r), r.ts]);
+    else this.mem.rules.push(r);
+    return r;
+  }
+  async listRules(): Promise<GuardrailRuleDef[]> {
+    if (this.pool) return (await this.pool.query("SELECT doc FROM guardrail_rules ORDER BY ts DESC")).rows.map((x) => x.doc);
+    return [...this.mem.rules];
+  }
+  async deleteRule(id: string): Promise<void> {
+    if (this.pool) await this.pool.query("DELETE FROM guardrail_rules WHERE rule_id=$1", [id]);
+    else this.mem.rules = this.mem.rules.filter((r) => r.rule_id !== id);
   }
 
   // ---- Attachments (many-to-many) ----

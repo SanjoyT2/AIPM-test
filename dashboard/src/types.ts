@@ -110,6 +110,9 @@ export interface KbDocument { document_id: string; kb_id: string; title: string;
 export interface GuardrailSet {
   gr_id: string; name: string; description?: string; rule_ids: string[]; ts: string; attached_agents?: string[];
 }
+export interface GuardrailRuleDef {
+  rule_id: string; name: string; description: string; severity: string; source: "built-in" | "custom";
+}
 
 export interface LearnerMeasurement {
   learner_id: string;

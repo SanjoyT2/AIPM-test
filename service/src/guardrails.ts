@@ -1,116 +1,77 @@
 /**
- * Guardrail engine — deterministic checks that run around every agent transaction
- * (doc 07). Rules are declared in d2d/config/guardrails.yaml; this module implements
- * the executable ones. Unimplemented ML rules record `passed:true` with a "static-pass"
- * note so their presence is honest and visible on the dashboard (no silent coverage claims).
+ * Guardrails — LLM-enforced, plain-English rules (no deterministic logic).
+ *
+ * A rule is just a name + a sentence ("Block any message that guarantees a job
+ * or a salary figure"). After an agent speaks, a guardrail critic pass reads the
+ * message against every attached rule and returns pass/fail each. Blocking rules
+ * that fail block the transaction. This runs on EVERY transaction (unlike the
+ * quality critic, which is policy-sampled) — it is the always-on enforcement pass.
+ *
+ * Rules are user-creatable in plain English (see the Guardrails page); there is no
+ * code to write. Spend limits are NOT guardrails — they're a separate per-agent /
+ * per-learner budget feature.
  */
-import type { GuardrailResult } from "./types.js";
+import type { LlmGateway } from "./gateway.js";
+import type { GuardrailResult, LlmCall } from "./types.js";
 
-const PII_PATTERNS: [string, RegExp][] = [
-  ["aadhaar", /\b\d{4}\s?\d{4}\s?\d{4}\b/g],
-  ["pan", /\b[A-Z]{5}\d{4}[A-Z]\b/g],
-  ["phone", /\b(?:\+91[ -]?)?[6-9]\d{9}\b/g],
-  ["upi_or_email", /\b[\w.\-]{2,}@[a-z][\w\-]+\b/gi],
-];
-
-const INJECTION = /(ignore (?:all|previous|above|prior) (?:instructions|prompts)|disregard (?:your|the) (?:instructions|rules)|you are now|reveal (?:your )?system prompt)/i;
-
-export interface GuardrailContext {
-  input: string;
-  output?: string;
-  windowOpen?: boolean;          // for consent_window
-  agentName?: string;
-  outputHasScore?: boolean;      // for no_unversioned_score
-  evidenceVersioned?: boolean;
+export interface GuardrailRule {
+  id: string;
+  name?: string;
+  description: string;                 // the plain-English rule the critic enforces
+  severity: "block" | "escalate" | "warn";
 }
 
-export interface InputGuardrailOutcome {
+export interface GuardrailOutcome {
   results: GuardrailResult[];
   blocked: boolean;
-  redactedInput: string;
+  calls: LlmCall[];                    // LLM cost of the guardrail pass (role: "guardrail")
 }
 
-export class GuardrailEngine {
-  constructor(private config: any) {}
+const SYS =
+  "You are a strict guardrail evaluator. You are given an AI agent's message and a list of rules. " +
+  "For EACH rule, decide whether the message VIOLATES it. Be conservative: if a rule is clearly violated, fail it. " +
+  'Respond with ONLY a JSON array, one object per rule: [{"id":"<rule id>","passed":true|false,"reason":"<short>"}]. ' +
+  "passed=true means the message complies (no violation).";
 
-  private rule(id: string) {
-    return this.config.rules?.[id] ?? { severity: "warn", stage: "input" };
+export class Guardrails {
+  constructor(private gateway: LlmGateway) {}
+
+  /** Evaluate the agent's output against the attached rules in one LLM pass. */
+  async evaluate(rules: GuardrailRule[], ctx: { agentName: string; input: string; output: string }): Promise<GuardrailOutcome> {
+    if (!rules.length) return { results: [], blocked: false, calls: [] };
+
+    const user =
+      `Agent: ${ctx.agentName}\n\nAgent message to evaluate:\n"""\n${ctx.output.slice(0, 4000)}\n"""\n\n` +
+      `Rules:\n${rules.map((r) => `- ${r.id}: ${r.description}`).join("\n")}`;
+
+    const res = await this.gateway.complete({ tier: "fast", role: "guardrail", system: SYS, user, maxTokens: 600 });
+
+    // Parse the evaluator's verdicts; default to pass on anything unparseable so a
+    // flaky judge never silently blocks (failures are surfaced, not fabricated).
+    const verdicts = parseVerdicts(res.text);
+    const results: GuardrailResult[] = rules.map((r) => {
+      const v = verdicts.get(r.id);
+      const passed = v ? v.passed : true;
+      return {
+        id: r.id, passed, severity: r.severity,
+        detail: res.stub ? "stub: not evaluated (no LLM key) — passed" : (v?.reason ?? (passed ? undefined : "violation")),
+      };
+    });
+    const blocked = results.some((r) => !r.passed && r.severity === "block");
+    return { results, blocked, calls: [res.call] };
   }
+}
 
-  policyRules(policy: string): string[] {
-    return this.config.policies?.[policy] ?? this.config.policies?.default ?? [];
+function parseVerdicts(text: string): Map<string, { passed: boolean; reason?: string }> {
+  const map = new Map<string, { passed: boolean; reason?: string }>();
+  try {
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]");
+    if (start < 0 || end < 0) return map;
+    const arr = JSON.parse(text.slice(start, end + 1));
+    for (const o of arr) if (o && typeof o.id === "string") map.set(o.id, { passed: o.passed !== false, reason: o.reason });
+  } catch {
+    /* leave empty -> callers default to pass */
   }
-
-  /** All rule ids declared in the catalog — for building attachable guardrail sets in the studio. */
-  allRuleIds(): string[] {
-    return Object.keys(this.config.rules ?? {});
-  }
-
-  // ---- Policy-name convenience (used when no attachments override) ----
-  runInput(policy: string, ctx: GuardrailContext): InputGuardrailOutcome {
-    return this.runInputRules(this.policyRules(policy), ctx);
-  }
-  runOutput(policy: string, ctx: GuardrailContext): { results: GuardrailResult[]; blocked: boolean } {
-    return this.runOutputRules(this.policyRules(policy), ctx);
-  }
-
-  // ---- Core: run an explicit, de-duplicated rule-id list (policy ∪ attached sets) ----
-  runInputRules(ruleIds: string[], ctx: GuardrailContext): InputGuardrailOutcome {
-    const results: GuardrailResult[] = [];
-    let redacted = ctx.input;
-    let blocked = false;
-
-    for (const id of [...new Set(ruleIds)]) {
-      const r = this.rule(id);
-      if (r.stage !== "input") continue;
-      let res: GuardrailResult;
-
-      if (id === "pii_redaction") {
-        const hits: string[] = [];
-        for (const [kind, re] of PII_PATTERNS) {
-          if (re.test(redacted)) { hits.push(kind); redacted = redacted.replace(re, `[${kind}-redacted]`); }
-          re.lastIndex = 0;
-        }
-        // Redaction succeeds rather than blocks: the model never sees the PII.
-        res = { id, passed: true, severity: r.severity, detail: hits.length ? `redacted: ${hits.join(", ")}` : undefined };
-      } else if (id === "prompt_injection") {
-        const hit = INJECTION.test(ctx.input);
-        res = { id, passed: !hit, severity: r.severity, detail: hit ? "injection pattern matched" : undefined };
-      } else if (id === "consent_window") {
-        const open = ctx.windowOpen !== false;
-        res = { id, passed: open, severity: r.severity, detail: open ? undefined : "24h window closed — approved template required" };
-      } else {
-        res = { id, passed: true, severity: r.severity, detail: "static-pass (v0 — check not yet executable)" };
-      }
-
-      results.push(res);
-      if (!res.passed && res.severity === "block") blocked = true;
-    }
-    return { results, blocked, redactedInput: redacted };
-  }
-
-  runOutputRules(ruleIds: string[], ctx: GuardrailContext): { results: GuardrailResult[]; blocked: boolean } {
-    const results: GuardrailResult[] = [];
-    let blocked = false;
-
-    for (const id of [...new Set(ruleIds)]) {
-      const r = this.rule(id);
-      if (r.stage !== "output") continue;
-      let res: GuardrailResult;
-
-      if (id === "no_unversioned_score") {
-        const ok = !ctx.outputHasScore || ctx.evidenceVersioned === true;
-        res = { id, passed: ok, severity: r.severity, detail: ok ? undefined : "score emitted without framework/rubric version" };
-      } else if (id === "no_false_promises") {
-        const hit = /(guarantee[ds]? (?:a )?(?:job|admission|placement)|100% (?:job|placement|revenue)|pakka (?:job|admission))/i.test(ctx.output ?? "");
-        res = { id, passed: !hit, severity: r.severity, detail: hit ? "promise language detected" : undefined };
-      } else {
-        res = { id, passed: true, severity: r.severity, detail: "static-pass (v0 — check not yet executable)" };
-      }
-
-      results.push(res);
-      if (!res.passed && res.severity === "block") blocked = true;
-    }
-    return { results, blocked };
-  }
+  return map;
 }

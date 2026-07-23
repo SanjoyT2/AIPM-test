@@ -1,4 +1,4 @@
-import type { AgentDetail, AgentSummary, AgentTransaction, CostRollupRow, GuardrailSet, Health, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary } from "./types";
+import type { AgentDetail, AgentSummary, AgentTransaction, CostRollupRow, GuardrailRuleDef, GuardrailSet, Health, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary } from "./types";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -43,8 +43,10 @@ export const api = {
   addDoc: (kbId: string, title: string, content: string) => post<KbDocument>(`/api/rag/kbs/${encodeURIComponent(kbId)}/docs`, { title, content }),
   deleteDoc: (docId: string) => del(`/api/rag/docs/${encodeURIComponent(docId)}`),
 
-  // Guardrail sets
-  guardrailCatalog: () => get<{ rules: Record<string, { severity: string; stage: string; detail?: string }>; all_rule_ids: string[] }>("/api/guardrails/catalog"),
+  // Guardrails: plain-English rules + sets
+  guardrailCatalog: () => get<{ rules: GuardrailRuleDef[]; all_rule_ids: string[] }>("/api/guardrails/catalog"),
+  createRule: (name: string, description: string, severity: string) => post<GuardrailRuleDef>("/api/guardrails/rules", { name, description, severity }),
+  deleteRule: (id: string) => del(`/api/guardrails/rules/${encodeURIComponent(id)}`),
   guardrailSets: () => get<GuardrailSet[]>("/api/guardrails/sets"),
   createGuardrailSet: (name: string, rule_ids: string[], description?: string) => post<GuardrailSet>("/api/guardrails/sets", { name, rule_ids, description }),
   deleteGuardrailSet: (id: string) => del(`/api/guardrails/sets/${encodeURIComponent(id)}`),
