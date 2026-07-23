@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, fmtTime, fmtUsd } from "../api";
 import { Panel } from "../components";
@@ -12,15 +12,21 @@ export default function AgentDetail() {
   const [sets, setSets] = useState<GuardrailSet[]>([]);
   const nav = useNavigate();
 
-  // playground
+  // playground — WhatsApp-style chat
+  type Msg =
+    | { dir: "out"; text: string; t: string }
+    | { dir: "in"; text: string; t: string; cost: number; status: string; guardrails: { id: string; passed: boolean }[]; retrieved: string[] };
   const [subject, setSubject] = useState("priya-sharma");
   const [text, setText] = useState("");
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ reply: string; sources: string[]; retrieved: string[]; cost: number; status: string; guardrails: string[] } | null>(null);
+  const [chat, setChat] = useState<Msg[]>([]);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const load = () => { if (name) api.agent(name).then(setA).catch(() => setA(null)); };
   useEffect(load, [name]);
   useEffect(() => { api.kbs().then(setKbs).catch(() => {}); api.guardrailSets().then(setSets).catch(() => {}); }, []);
+  useEffect(() => { setChat([]); }, [subject]);
+  useEffect(() => { bodyRef.current?.scrollTo(0, bodyRef.current.scrollHeight); }, [chat, running]);
 
   if (!a) return <div className="sub">Loading…</div>;
 
@@ -29,19 +35,25 @@ export default function AgentDetail() {
     load();
   };
 
-  const run = async () => {
-    if (!name || !text.trim()) return;
-    setRunning(true); setResult(null);
+  const now = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  const send = async () => {
+    if (!name || !text.trim() || running) return;
+    const outMsg = text.trim();
+    setText("");
+    setChat((c) => [...c, { dir: "out", text: outMsg, t: now() }]);
+    setRunning(true);
     try {
-      const r = await api.testAgent(name, subject, text);
+      const r = await api.testAgent(name, subject, outMsg);
       const tx = r.transaction;
-      const g = [...(tx.guardrails.input ?? []), ...(tx.guardrails.output ?? [])];
-      setResult({
-        reply: (tx.output as { text?: string })?.text ?? JSON.stringify(tx.output),
-        sources: tx.evidence.sources, retrieved: r.retrieved.map((x) => x.title),
-        cost: tx.cost.total_usd, status: tx.status,
-        guardrails: g.map((x) => `${x.id}${x.passed ? "" : " ✗"}`),
-      });
+      setChat((c) => [...c, {
+        dir: "in",
+        text: (tx.output as { text?: string })?.text ?? JSON.stringify(tx.output),
+        t: now(), cost: tx.cost.total_usd, status: tx.status,
+        guardrails: [...(tx.guardrails.output ?? [])].map((x) => ({ id: x.id, passed: x.passed })),
+        retrieved: r.retrieved.map((x) => x.title),
+      }]);
+    } catch (e) {
+      setChat((c) => [...c, { dir: "in", text: `⚠︎ ${String(e)}`, t: now(), cost: 0, status: "error", guardrails: [], retrieved: [] }]);
     } finally { setRunning(false); }
   };
 
@@ -54,21 +66,48 @@ export default function AgentDetail() {
       </h1>
       <div className="sub" style={{ marginBottom: 14 }}>guardrail policy <b>{a.guardrail_policy}</b> · critic policy <b>{a.critic_policy}</b></div>
 
-      <Panel title="Playground — test on a learner's behalf (never sends WhatsApp)">
-        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-          <input className="chip" style={{ width: 160 }} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="learner id" />
-          <input className="chip" style={{ flex: 1, minWidth: 220 }} value={text} onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && run()} placeholder={a.name === "trainer" ? "START" : "type a message as this learner…"} />
-          <button className="chip" disabled={running || !text.trim()} onClick={run}>{running ? "Running…" : "Run"}</button>
+      <Panel title="Playground — chat on a learner's behalf (test mode · never sends WhatsApp)">
+        <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+          <span className="sub">chatting as</span>
+          <input className="chip" style={{ width: 170 }} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="learner id" />
         </div>
-        {result && (
-          <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
-            <div className="sub">reply · <span className={`pill ${result.status === "blocked" ? "danger" : "ok"}`}>{result.status}</span> · {fmtUsd(result.cost)}</div>
-            <pre className="code" style={{ marginTop: 6 }}>{result.reply}</pre>
-            {result.retrieved.length > 0 && <div className="sub" style={{ marginTop: 6 }}>RAG injected: {result.retrieved.join(", ")}</div>}
-            <div className="sub" style={{ marginTop: 4 }}>guardrails: {result.guardrails.join(", ")}</div>
+        <div className="wa">
+          <div className="wa-head">
+            <div className="wa-avatar">{a.name.slice(0, 2).toUpperCase()}</div>
+            <div>
+              <div className="who">{a.name}</div>
+              <div className="status">{running ? "typing…" : "online · test mode"}</div>
+            </div>
           </div>
-        )}
+          <div className="wa-body" ref={bodyRef}>
+            {chat.length === 0 && !running && (
+              <div className="wa-empty">Send a message as <b>{subject}</b> to test {a.name}.<br />{a.name === "trainer" ? "Try “START”." : "Try a real question."}</div>
+            )}
+            {chat.map((m, i) => (
+              <div key={i}>
+                <div className={`wa-row ${m.dir}`}>
+                  <div className="wa-msg">{m.text}<span className="t">{m.t}</span></div>
+                </div>
+                {m.dir === "in" && (
+                  <div className="wa-meta">
+                    <span className={`m ${m.status === "blocked" || m.status === "error" ? "bad" : "ok"}`}>{m.status}</span>
+                    <span className="m">{fmtUsd(m.cost)}</span>
+                    {m.retrieved.length > 0 && <span className="m">RAG: {m.retrieved.join(", ")}</span>}
+                    {m.guardrails.map((g) => (
+                      <span key={g.id} className={`m ${g.passed ? "" : "bad"}`}>{g.passed ? "✓" : "✗"} {g.id}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {running && <div className="wa-row in"><div className="wa-msg" style={{ color: "#8696a0" }}>…</div></div>}
+          </div>
+          <div className="wa-inbar">
+            <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder={a.name === "trainer" ? "Type START…" : "Type a message…"} />
+            <button className="wa-send" onClick={send} disabled={running || !text.trim()} aria-label="send">➤</button>
+          </div>
+        </div>
       </Panel>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>

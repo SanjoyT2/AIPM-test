@@ -16,9 +16,9 @@ export default function App() {
     <div className="layout">
       <aside className="side">
         <div className="brand">
-          <div className="mark">D2</div>
+          <div className="mark">D2D</div>
           <div>
-            <div className="name">D2D Cockpit</div>
+            <div className="name">Degree2Destiny</div>
             <div className="sub">operator console</div>
           </div>
         </div>
