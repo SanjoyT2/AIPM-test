@@ -86,6 +86,31 @@ export interface EvidenceEvent {
   scale_max: number;
 }
 
+export interface AgentSummary {
+  name: string; version: string; tier: string;
+  guardrail_policy: string; critic_policy: string;
+  transactions: number; total_usd: number; avg_ms: number;
+  completed: number; revised: number; escalated: number; blocked: number;
+  success_rate: number | null;
+  attached_kbs: string[]; attached_guardrail_sets: string[];
+}
+
+export interface AgentDetail {
+  name: string; version: string; tier: string;
+  guardrail_policy: string; critic_policy: string; system_prompt: string;
+  attached_kbs: string[]; attached_guardrail_sets: string[];
+  recent_transactions: { transaction_id: string; timestamp: string; subject_id?: string; status: string; verdict: string; total_usd: number }[];
+}
+
+export interface KnowledgeBase {
+  kb_id: string; name: string; description?: string; ts: string;
+  doc_count?: number; attached_agents?: string[];
+}
+export interface KbDocument { document_id: string; kb_id: string; title: string; content: string; ts: string; }
+export interface GuardrailSet {
+  gr_id: string; name: string; description?: string; rule_ids: string[]; ts: string; attached_agents?: string[];
+}
+
 export interface LearnerMeasurement {
   learner_id: string;
   mastery: { competency_id: string; name: string; estimate: number; at_threshold: boolean; threshold: number; evidence_count: number }[];

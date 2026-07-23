@@ -1,9 +1,13 @@
 import { NavLink, Route, Routes } from "react-router-dom";
+import AgentDetail from "./views/AgentDetail";
 import Costs from "./views/Costs";
 import Frameworks from "./views/Frameworks";
+import GuardrailSets from "./views/GuardrailSets";
+import Knowledge from "./views/Knowledge";
 import LearnerDetail from "./views/LearnerDetail";
 import Learners from "./views/Learners";
 import Overview from "./views/Overview";
+import Studio from "./views/Studio";
 import TransactionDetail from "./views/TransactionDetail";
 import Transactions from "./views/Transactions";
 
@@ -21,6 +25,9 @@ export default function App() {
         <nav className="nav">
           <NavLink to="/" end>Overview</NavLink>
           <NavLink to="/learners">Learners</NavLink>
+          <NavLink to="/studio">Agent Studio</NavLink>
+          <NavLink to="/knowledge">Knowledge</NavLink>
+          <NavLink to="/guardrails">Guardrails</NavLink>
           <NavLink to="/transactions">Transactions</NavLink>
           <NavLink to="/costs">Cost train</NavLink>
           <NavLink to="/frameworks">Frameworks</NavLink>
@@ -31,6 +38,10 @@ export default function App() {
           <Route path="/" element={<Overview />} />
           <Route path="/learners" element={<Learners />} />
           <Route path="/learners/:id" element={<LearnerDetail />} />
+          <Route path="/studio" element={<Studio />} />
+          <Route path="/studio/:name" element={<AgentDetail />} />
+          <Route path="/knowledge" element={<Knowledge />} />
+          <Route path="/guardrails" element={<GuardrailSets />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/transactions/:id" element={<TransactionDetail />} />
           <Route path="/costs" element={<Costs />} />

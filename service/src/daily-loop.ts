@@ -11,7 +11,8 @@
  */
 import type { AgentSpec } from "./agents.js";
 import type { Executor } from "./executor.js";
-import type { Plan, PlanStep } from "./types.js";
+import type { ResourceStore } from "./resource-store.js";
+import type { AgentTransaction, Plan, PlanStep } from "./types.js";
 import type { WaClient } from "./wa-client.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -36,8 +37,45 @@ export class DailyLoop {
     private agents: Record<string, AgentSpec>,
     private frameworks: any,
     private wa: WaClient,
+    private resources: ResourceStore,
     private log: (msg: string, obj?: unknown) => void = console.log,
   ) {}
+
+  /**
+   * Resolve an agent's attached resources and run it once through the executor:
+   *  - RAG: retrieve top-K docs from attached knowledge bases, inject into the
+   *    system prompt, and record them as evidence.sources (grounding).
+   *  - Guardrails: effective rules = base policy ∪ every attached guardrail set.
+   * Reused by the daily loop AND the Studio playground (test-as-user).
+   */
+  async runAgent(agentName: string, subjectId: string, input: string, opts: { windowOpen?: boolean; baseSources?: string[]; stepId?: string } = {}): Promise<{ tx: AgentTransaction; retrieved: { document_id: string; title: string; score: number }[] }> {
+    const agent = this.agents[agentName];
+    if (!agent) throw new Error(`unknown agent '${agentName}'`);
+
+    const hits = await this.resources.retrieve(agentName, input, 3);
+    const effAgent: AgentSpec = hits.length
+      ? { ...agent, systemPrompt: `${agent.systemPrompt}\n\n# Knowledge base (retrieved, most relevant first)\n${hits.map((h, i) => `[${i + 1}] ${h.title}: ${h.content}`).join("\n")}` }
+      : agent;
+
+    const baseRules: string[] = this.frameworks.guardrails.policies?.[agent.guardrailPolicy]
+      ?? this.frameworks.guardrails.policies?.default ?? [];
+    const attachedRules = await this.resources.agentAttachedGuardrailRuleIds(agentName);
+    const guardrailRuleIds = [...new Set([...baseRules, ...attachedRules])];
+
+    const date = new Date().toISOString().slice(0, 10);
+    const plan: Plan = { plan_id: `plan-${agentName}-${subjectId}-${date}`, goal: `Run ${agentName}`, altitude: "micro", subject_id: subjectId, created_by: "daily-loop@0.1.0", steps: [] };
+    const step: PlanStep = { step_id: opts.stepId ?? `s1-${agentName}`, agent: agentName, output_contract: "text/plain", budget: { max_usd: this.frameworks.costModel?.budgets?.per_transaction?.default_max_usd } };
+    plan.steps.push(step);
+
+    const tx = await this.executor.runStep({
+      plan, step, agent: effAgent, input, subjectId,
+      sources: [...(opts.baseSources ?? []), ...hits.map((h) => `kb:${h.kb_id}/${h.document_id}`)],
+      windowOpen: opts.windowOpen ?? true,
+      frameworkVersion: this.frameworks.versions.competency_framework,
+      guardrailRuleIds,
+    });
+    return { tx, retrieved: hits.map((h) => ({ document_id: h.document_id, title: h.title, score: h.score })) };
+  }
 
   windowOpen(learnerId: string): boolean {
     return (this.windows.get(learnerId) ?? 0) > Date.now();
@@ -53,35 +91,16 @@ export class DailyLoop {
     this.touch(learnerId);
     const trimmed = text.trim();
     const isStart = /^start\b/i.test(trimmed);
-
-    const agent = isStart ? this.agents.trainer : this.agents.mentor;
     const date = new Date().toISOString().slice(0, 10);
-    const plan: Plan = {
-      plan_id: `plan-daily-${learnerId}-${date}`,
-      goal: isStart ? "Serve today's personalized lesson" : "Coach the learner past their question",
-      altitude: "micro",
-      subject_id: learnerId,
-      created_by: "daily-loop@0.1.0",
-      steps: [],
-    };
-    const step: PlanStep = {
-      step_id: isStart ? "s1-lesson" : "s1-mentor",
-      agent: agent.name,
-      output_contract: "text/plain",
-      budget: { max_usd: this.frameworks.costModel?.budgets?.per_transaction?.default_max_usd },
-    };
-    plan.steps.push(step);
 
     const input = isStart
       ? `Learner ${learnerId} sent START for day ${date}. Serve today's lesson (v0: no mastery profile yet — begin at Level 1, use a real MSME case, end with one quiz question and one hands-on task).`
       : `Learner ${learnerId} asks: ${trimmed}`;
 
-    const tx = await this.executor.runStep({
-      plan, step, agent, input,
-      subjectId: learnerId,
-      sources: [isStart ? `lesson-request:${date}` : "learner-question", `window:open`],
+    const { tx } = await this.runAgent(isStart ? "trainer" : "mentor", learnerId, input, {
       windowOpen: true, // they just messaged us — definitionally open
-      frameworkVersion: this.frameworks.versions.competency_framework,
+      baseSources: [isStart ? `lesson-request:${date}` : "learner-question"],
+      stepId: isStart ? "s1-lesson" : "s1-mentor",
     });
 
     // Learner just messaged us, so the window is open — send the reply as free-form

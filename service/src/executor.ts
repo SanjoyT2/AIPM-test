@@ -20,9 +20,10 @@ export interface StepRequest {
   agent: AgentSpec;
   input: string;                 // user-visible input for the actor
   subjectId?: string;
-  sources?: string[];            // evidence grounding refs supplied by the caller
+  sources?: string[];            // evidence grounding refs supplied by the caller (incl. injected RAG docs)
   windowOpen?: boolean;          // consent_window context (daily loop supplies this)
   frameworkVersion: string;
+  guardrailRuleIds?: string[];   // explicit rule ids (agent policy ∪ attached guardrail sets); falls back to policy
 }
 
 const VERDICT_RE = /verdict\s*[:=]\s*(accept|revise|reject|escalate)/i;
@@ -48,7 +49,9 @@ export class Executor {
       ?? this.frameworks.costModel?.budgets?.per_transaction?.default_max_usd ?? 1;
 
     // ② INPUT GUARDRAILS ------------------------------------------------------
-    const gin = this.guardrails.runInput(guardrailPolicy, {
+    // Effective rules = attached guardrail sets if provided, else the agent's policy.
+    const ruleIds = req.guardrailRuleIds ?? this.guardrails.policyRules(guardrailPolicy);
+    const gin = this.guardrails.runInputRules(ruleIds, {
       input: req.input, windowOpen: req.windowOpen, agentName: req.agent.name,
     });
     if (gin.blocked) {
@@ -129,7 +132,7 @@ export class Executor {
 
     // ⑤ OUTPUT GUARDRAILS ------------------------------------------------------
     const hasScore = /"score"|score[:=]\s*\d/i.test(actorText);
-    const gout = this.guardrails.runOutput(guardrailPolicy, {
+    const gout = this.guardrails.runOutputRules(ruleIds, {
       input: gin.redactedInput, output: actorText, agentName: req.agent.name,
       outputHasScore: hasScore, evidenceVersioned: Boolean(req.frameworkVersion),
     });

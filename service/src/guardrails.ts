@@ -41,12 +41,26 @@ export class GuardrailEngine {
     return this.config.policies?.[policy] ?? this.config.policies?.default ?? [];
   }
 
+  /** All rule ids declared in the catalog — for building attachable guardrail sets in the studio. */
+  allRuleIds(): string[] {
+    return Object.keys(this.config.rules ?? {});
+  }
+
+  // ---- Policy-name convenience (used when no attachments override) ----
   runInput(policy: string, ctx: GuardrailContext): InputGuardrailOutcome {
+    return this.runInputRules(this.policyRules(policy), ctx);
+  }
+  runOutput(policy: string, ctx: GuardrailContext): { results: GuardrailResult[]; blocked: boolean } {
+    return this.runOutputRules(this.policyRules(policy), ctx);
+  }
+
+  // ---- Core: run an explicit, de-duplicated rule-id list (policy ∪ attached sets) ----
+  runInputRules(ruleIds: string[], ctx: GuardrailContext): InputGuardrailOutcome {
     const results: GuardrailResult[] = [];
     let redacted = ctx.input;
     let blocked = false;
 
-    for (const id of this.policyRules(policy)) {
+    for (const id of [...new Set(ruleIds)]) {
       const r = this.rule(id);
       if (r.stage !== "input") continue;
       let res: GuardrailResult;
@@ -75,11 +89,11 @@ export class GuardrailEngine {
     return { results, blocked, redactedInput: redacted };
   }
 
-  runOutput(policy: string, ctx: GuardrailContext): { results: GuardrailResult[]; blocked: boolean } {
+  runOutputRules(ruleIds: string[], ctx: GuardrailContext): { results: GuardrailResult[]; blocked: boolean } {
     const results: GuardrailResult[] = [];
     let blocked = false;
 
-    for (const id of this.policyRules(policy)) {
+    for (const id of [...new Set(ruleIds)]) {
       const r = this.rule(id);
       if (r.stage !== "output") continue;
       let res: GuardrailResult;

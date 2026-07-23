@@ -17,8 +17,10 @@ import { EvidenceStore } from "./evidence-store.js";
 import { Executor } from "./executor.js";
 import { LlmGateway } from "./gateway.js";
 import { Ledger } from "./ledger.js";
+import { GuardrailEngine } from "./guardrails.js";
 import { MeasurementEngine } from "./measurement.js";
 import { OperatorActionStore } from "./operator-actions.js";
+import { ResourceStore } from "./resource-store.js";
 import { settings } from "./settings.js";
 import type { AgentTransaction, EvidenceEvent } from "./types.js";
 import { compileSchema } from "./validation.js";
@@ -35,6 +37,8 @@ function timingSafeEqualStr(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
 async function main() {
   // 1. Frameworks (throws on invalid config — refuse to boot)
   const frameworks = loadFrameworks();
@@ -46,6 +50,8 @@ async function main() {
   await evidence.init(ledger.getPool());
   const operatorActions = new OperatorActionStore();
   await operatorActions.init(ledger.getPool());
+  const resources = new ResourceStore();
+  await resources.init(ledger.getPool());
   const measurement = new MeasurementEngine(frameworks);
   const gateway = new LlmGateway(frameworks.costModel);
 
@@ -85,7 +91,8 @@ async function main() {
   } else {
     console.info(`[wa] 11za outbound live — base=${settings.wa.apiBase}`);
   }
-  const dailyLoop = new DailyLoop(executor, agents, frameworks, wa);
+  const dailyLoop = new DailyLoop(executor, agents, frameworks, wa, resources);
+  const guardrailEngine = new GuardrailEngine(frameworks.guardrails);
   dailyLoop.startSilenceSweep();
 
   const app = Fastify({ logger: true });
@@ -235,6 +242,118 @@ async function main() {
   });
 
   app.get("/api/actions", async () => operatorActions.all());
+
+  // ================= Agent Studio =================
+
+  // Agents list with per-agent config + attached resources + ledger stats.
+  app.get("/api/agents", async () => {
+    const txs = await ledger.list({ limit: 500 });
+    return Promise.all(Object.values(agents).map(async (a) => {
+      const mine = txs.filter((t) => t.agent.name === a.name);
+      const n = mine.length || 1;
+      return {
+        name: a.name, version: a.version, tier: a.tier,
+        guardrail_policy: a.guardrailPolicy, critic_policy: a.criticPolicy,
+        transactions: mine.length,
+        total_usd: round6(mine.reduce((s, t) => s + t.cost.total_usd, 0)),
+        avg_ms: Math.round(mine.reduce((s, t) => s + (t.cost.total_ms ?? 0), 0) / n),
+        completed: mine.filter((t) => t.status === "completed").length,
+        revised: mine.filter((t) => t.status === "revised").length,
+        escalated: mine.filter((t) => t.status === "escalated").length,
+        blocked: mine.filter((t) => t.status === "blocked").length,
+        success_rate: mine.length ? +(mine.filter((t) => t.status === "completed" || t.status === "revised").length / mine.length).toFixed(3) : null,
+        attached_kbs: await resources.agentKbIds(a.name),
+        attached_guardrail_sets: await resources.agentGuardrailSetIds(a.name),
+      };
+    }));
+  });
+
+  app.get("/api/agents/:name", async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const a = agents[name];
+    if (!a) return reply.code(404).send({ error: "unknown agent" });
+    const recent = await ledger.list({ agent: name, limit: 25 });
+    return {
+      name: a.name, version: a.version, tier: a.tier,
+      guardrail_policy: a.guardrailPolicy, critic_policy: a.criticPolicy,
+      system_prompt: a.systemPrompt,
+      attached_kbs: await resources.agentKbIds(name),
+      attached_guardrail_sets: await resources.agentGuardrailSetIds(name),
+      recent_transactions: recent.map((t) => ({ transaction_id: t.transaction_id, timestamp: t.timestamp, subject_id: t.subject_id, status: t.status, verdict: t.critique.verdict, total_usd: t.cost.total_usd })),
+    };
+  });
+
+  // Playground: run an agent as if messaging on a chosen learner's behalf. Never sends WhatsApp.
+  app.post("/api/agents/:name/test", async (req, reply) => {
+    const { name } = req.params as { name: string };
+    if (!agents[name]) return reply.code(404).send({ error: "unknown agent" });
+    const { subject = "test-user", text } = (req.body ?? {}) as { subject?: string; text?: string };
+    if (!text) return reply.code(400).send({ error: "text is required" });
+    const { tx, retrieved } = await dailyLoop.runAgent(name, subject, text, { baseSources: ["studio-playground"] });
+    return { transaction: tx, retrieved };
+  });
+
+  // ---- RAG: knowledge bases (standalone, attachable) ----
+  app.get("/api/rag/kbs", async () => {
+    const kbs = await resources.listKBs();
+    return Promise.all(kbs.map(async (kb) => ({
+      ...kb, doc_count: (await resources.listDocs(kb.kb_id)).length,
+      attached_agents: await resources.agentsForResource("kb", kb.kb_id),
+    })));
+  });
+  app.post("/api/rag/kbs", async (req, reply) => {
+    const { name, description } = (req.body ?? {}) as { name?: string; description?: string };
+    if (!name) return reply.code(400).send({ error: "name is required" });
+    return reply.code(201).send(await resources.createKB(name, description));
+  });
+  app.get("/api/rag/kbs/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const kb = await resources.getKB(id);
+    if (!kb) return reply.code(404).send({ error: "not found" });
+    return { ...kb, documents: await resources.listDocs(id), attached_agents: await resources.agentsForResource("kb", id) };
+  });
+  app.delete("/api/rag/kbs/:id", async (req) => { await resources.deleteKB((req.params as { id: string }).id); return { ok: true }; });
+  app.post("/api/rag/kbs/:id/docs", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { title, content } = (req.body ?? {}) as { title?: string; content?: string };
+    if (!title || !content) return reply.code(400).send({ error: "title and content are required" });
+    return reply.code(201).send(await resources.addDoc(id, title, content));
+  });
+  app.delete("/api/rag/docs/:docId", async (req) => { await resources.deleteDoc((req.params as { docId: string }).docId); return { ok: true }; });
+  app.post("/api/rag/retrieve", async (req) => {
+    const { agent, query } = (req.body ?? {}) as { agent?: string; query?: string };
+    return resources.retrieve(agent ?? "", query ?? "", 5);
+  });
+
+  // ---- Guardrail sets (standalone, attachable) ----
+  app.get("/api/guardrails/catalog", async () => ({
+    rules: frameworks.guardrails.rules, all_rule_ids: guardrailEngine.allRuleIds(),
+  }));
+  app.get("/api/guardrails/sets", async () => {
+    const sets = await resources.listGuardrailSets();
+    return Promise.all(sets.map(async (s) => ({ ...s, attached_agents: await resources.agentsForResource("guardrail", s.gr_id) })));
+  });
+  app.post("/api/guardrails/sets", async (req, reply) => {
+    const { name, rule_ids, description } = (req.body ?? {}) as { name?: string; rule_ids?: string[]; description?: string };
+    if (!name || !Array.isArray(rule_ids) || !rule_ids.length) return reply.code(400).send({ error: "name and non-empty rule_ids are required" });
+    const known = new Set(guardrailEngine.allRuleIds());
+    const unknown = rule_ids.filter((r) => !known.has(r));
+    if (unknown.length) return reply.code(400).send({ error: `unknown rule ids: ${unknown.join(", ")}` });
+    return reply.code(201).send(await resources.createGuardrailSet(name, rule_ids, description));
+  });
+  app.delete("/api/guardrails/sets/:id", async (req) => { await resources.deleteGuardrailSet((req.params as { id: string }).id); return { ok: true }; });
+
+  // ---- Attach / detach a resource to an agent (many-to-many) ----
+  app.post("/api/agents/:name/resources", async (req, reply) => {
+    const { name } = req.params as { name: string };
+    if (!agents[name]) return reply.code(404).send({ error: "unknown agent" });
+    const { type, resource_id, action = "attach" } = (req.body ?? {}) as { type?: "kb" | "guardrail"; resource_id?: string; action?: "attach" | "detach" };
+    if (type !== "kb" && type !== "guardrail") return reply.code(400).send({ error: "type must be 'kb' or 'guardrail'" });
+    if (!resource_id) return reply.code(400).send({ error: "resource_id is required" });
+    if (action === "detach") await resources.detach(name, type, resource_id);
+    else await resources.attach(name, type, resource_id);
+    return { ok: true, action, agent: name, type, resource_id };
+  });
 
   // ---- Cockpit dashboard (built SPA, when present) ----
   if (fs.existsSync(path.join(settings.dashboardDir, "index.html"))) {

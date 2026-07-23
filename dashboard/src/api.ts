@@ -1,4 +1,4 @@
-import type { AgentTransaction, CostRollupRow, Health, LearnerMeasurement, LearnerSummary } from "./types";
+import type { AgentDetail, AgentSummary, AgentTransaction, CostRollupRow, GuardrailSet, Health, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary } from "./types";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -26,7 +26,35 @@ export const api = {
     post(`/api/learners/${encodeURIComponent(learner)}/integrity/${encodeURIComponent(competency)}`, { decision }),
   resolveEscalation: (txId: string, decision: "acknowledged" | "overridden") =>
     post(`/api/transactions/${encodeURIComponent(txId)}/resolve`, { decision }),
+
+  // Agent Studio
+  agents: () => get<AgentSummary[]>("/api/agents"),
+  agent: (name: string) => get<AgentDetail>(`/api/agents/${encodeURIComponent(name)}`),
+  testAgent: (name: string, subject: string, text: string) =>
+    post<{ transaction: AgentTransaction; retrieved: { document_id: string; title: string; score: number }[] }>(`/api/agents/${encodeURIComponent(name)}/test`, { subject, text }),
+  attachResource: (agent: string, type: "kb" | "guardrail", resource_id: string, action: "attach" | "detach") =>
+    post(`/api/agents/${encodeURIComponent(agent)}/resources`, { type, resource_id, action }),
+
+  // RAG knowledge bases
+  kbs: () => get<KnowledgeBase[]>("/api/rag/kbs"),
+  kb: (id: string) => get<KnowledgeBase & { documents: KbDocument[] }>(`/api/rag/kbs/${encodeURIComponent(id)}`),
+  createKB: (name: string, description?: string) => post<KnowledgeBase>("/api/rag/kbs", { name, description }),
+  deleteKB: (id: string) => del(`/api/rag/kbs/${encodeURIComponent(id)}`),
+  addDoc: (kbId: string, title: string, content: string) => post<KbDocument>(`/api/rag/kbs/${encodeURIComponent(kbId)}/docs`, { title, content }),
+  deleteDoc: (docId: string) => del(`/api/rag/docs/${encodeURIComponent(docId)}`),
+
+  // Guardrail sets
+  guardrailCatalog: () => get<{ rules: Record<string, { severity: string; stage: string; detail?: string }>; all_rule_ids: string[] }>("/api/guardrails/catalog"),
+  guardrailSets: () => get<GuardrailSet[]>("/api/guardrails/sets"),
+  createGuardrailSet: (name: string, rule_ids: string[], description?: string) => post<GuardrailSet>("/api/guardrails/sets", { name, rule_ids, description }),
+  deleteGuardrailSet: (id: string) => del(`/api/guardrails/sets/${encodeURIComponent(id)}`),
 };
+
+async function del(path: string): Promise<unknown> {
+  const r = await fetch(path, { method: "DELETE" });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText} on ${path}`);
+  return r.json();
+}
 
 async function post<T = unknown>(path: string, body: unknown): Promise<T> {
   const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
