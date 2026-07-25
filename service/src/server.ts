@@ -299,15 +299,31 @@ async function main() {
     const a = agents[name];
     if (!a) return reply.code(404).send({ error: "unknown agent" });
     const recent = await ledger.list({ agent: name, limit: 25 });
+    const override = await resources.latestPrompt(name);
     return {
       name: a.name, version: a.version, tier: a.tier,
       guardrail_policy: a.guardrailPolicy, critic_policy: a.criticPolicy,
-      system_prompt: a.systemPrompt,
+      system_prompt: override?.prompt ?? a.systemPrompt,   // effective prompt
+      prompt_default: a.systemPrompt,                       // the file seed
+      prompt_overridden: !!override,
+      prompt_version: override?.version ?? null,
       attached_kbs: await resources.agentKbIds(name),
       attached_guardrail_sets: await resources.agentGuardrailSetIds(name),
       recent_transactions: recent.map((t) => ({ transaction_id: t.transaction_id, timestamp: t.timestamp, subject_id: t.subject_id, status: t.status, verdict: t.critique.verdict, total_usd: t.cost.total_usd })),
     };
   });
+
+  // Edit the prompt (versioned override wins over the file default at run time).
+  app.put("/api/agents/:name/prompt", async (req, reply) => {
+    const { name } = req.params as { name: string };
+    if (!agents[name]) return reply.code(404).send({ error: "unknown agent" });
+    const { prompt, author = "operator" } = (req.body ?? {}) as { prompt?: string; author?: string };
+    if (!prompt || !prompt.trim()) return reply.code(400).send({ error: "prompt is required" });
+    return reply.code(201).send(await resources.savePrompt(name, prompt, author));
+  });
+  app.get("/api/agents/:name/prompt/versions", async (req) => resources.promptVersions((req.params as { name: string }).name));
+  // Reset to the built-in file prompt (clears all overrides).
+  app.delete("/api/agents/:name/prompt", async (req) => { await resources.clearPrompts((req.params as { name: string }).name); return { ok: true }; });
 
   // Playground: run an agent as if messaging on a chosen learner's behalf. Never sends WhatsApp.
   app.post("/api/agents/:name/test", async (req, reply) => {

@@ -22,8 +22,21 @@ export default function AgentDetail() {
   const [chat, setChat] = useState<Msg[]>([]);
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  // prompt editing
+  const [editingPrompt, setEditingPrompt] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [savingPrompt, setSavingPrompt] = useState(false);
+
   const load = () => { if (name) api.agent(name).then(setA).catch(() => setA(null)); };
   useEffect(load, [name]);
+
+  const savePrompt = async () => {
+    if (!name || !draft.trim()) return;
+    setSavingPrompt(true);
+    try { await api.savePrompt(name, draft); setEditingPrompt(false); load(); }
+    finally { setSavingPrompt(false); }
+  };
+  const resetPrompt = async () => { if (name) { await api.resetPrompt(name); load(); } };
   useEffect(() => { api.kbs().then(setKbs).catch(() => {}); api.guardrailSets().then(setSets).catch(() => {}); }, []);
   useEffect(() => { setChat([]); }, [subject]);
   useEffect(() => { bodyRef.current?.scrollTo(0, bodyRef.current.scrollHeight); }, [chat, running]);
@@ -138,7 +151,28 @@ export default function AgentDetail() {
       </div>
 
       <Panel title="System prompt">
-        <pre className="code" style={{ maxHeight: 220, overflowY: "auto" }}>{a.system_prompt}</pre>
+        {!editingPrompt ? (
+          <>
+            <div className="sub" style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
+              {a.prompt_overridden
+                ? <span className="pill accent">edited · v{a.prompt_version}</span>
+                : <span className="pill">built-in default</span>}
+              <button className="chip" onClick={() => { setDraft(a.system_prompt); setEditingPrompt(true); }}>Edit</button>
+              {a.prompt_overridden && <button className="chip" onClick={resetPrompt}>Reset to default</button>}
+            </div>
+            <pre className="code" style={{ maxHeight: 220, overflowY: "auto" }}>{a.system_prompt}</pre>
+          </>
+        ) : (
+          <>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)}
+              style={{ width: "100%", minHeight: 260, background: "var(--bg)", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 8, padding: 12, fontFamily: "var(--mono)", fontSize: 12.5, lineHeight: 1.5, resize: "vertical" }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button className="chip on" disabled={savingPrompt || !draft.trim()} onClick={savePrompt}>{savingPrompt ? "Saving…" : "Save new version"}</button>
+              <button className="chip" onClick={() => setEditingPrompt(false)}>Cancel</button>
+              <span className="sub" style={{ alignSelf: "center" }}>Saved edits take effect immediately and are versioned.</span>
+            </div>
+          </>
+        )}
       </Panel>
 
       <Panel title={`Recent conversations (${a.recent_transactions.length})`}>

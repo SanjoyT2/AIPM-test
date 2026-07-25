@@ -34,6 +34,8 @@ export const api = {
     post<{ transaction: AgentTransaction; retrieved: { document_id: string; title: string; score: number }[] }>(`/api/agents/${encodeURIComponent(name)}/test`, { subject, text }),
   attachResource: (agent: string, type: "kb" | "guardrail", resource_id: string, action: "attach" | "detach") =>
     post(`/api/agents/${encodeURIComponent(agent)}/resources`, { type, resource_id, action }),
+  savePrompt: (agent: string, prompt: string) => post(`/api/agents/${encodeURIComponent(agent)}/prompt`, { prompt }),
+  resetPrompt: (agent: string) => del(`/api/agents/${encodeURIComponent(agent)}/prompt`),
 
   // RAG knowledge bases
   kbs: () => get<KnowledgeBase[]>("/api/rag/kbs"),

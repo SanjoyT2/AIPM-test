@@ -98,6 +98,7 @@ export interface AgentSummary {
 export interface AgentDetail {
   name: string; version: string; tier: string;
   guardrail_policy: string; critic_policy: string; system_prompt: string;
+  prompt_default: string; prompt_overridden: boolean; prompt_version: number | null;
   attached_kbs: string[]; attached_guardrail_sets: string[];
   recent_transactions: { transaction_id: string; timestamp: string; subject_id?: string; status: string; verdict: string; total_usd: number }[];
 }

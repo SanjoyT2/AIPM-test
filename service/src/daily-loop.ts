@@ -53,10 +53,17 @@ export class DailyLoop {
     const agent = this.agents[agentName];
     if (!agent) throw new Error(`unknown agent '${agentName}'`);
 
+    // Effective prompt: a saved override (edited in the Studio) wins over the file default.
+    const override = await this.resources.latestPrompt(agentName);
+    const basePrompt = override?.prompt ?? agent.systemPrompt;
+
     const hits = await this.resources.retrieve(agentName, input, 3);
-    const effAgent: AgentSpec = hits.length
-      ? { ...agent, systemPrompt: `${agent.systemPrompt}\n\n# Knowledge base (retrieved, most relevant first)\n${hits.map((h, i) => `[${i + 1}] ${h.title}: ${h.content}`).join("\n")}` }
-      : agent;
+    const effAgent: AgentSpec = {
+      ...agent,
+      systemPrompt: hits.length
+        ? `${basePrompt}\n\n# Knowledge base (retrieved, most relevant first)\n${hits.map((h, i) => `[${i + 1}] ${h.title}: ${h.content}`).join("\n")}`
+        : basePrompt,
+    };
 
     const baseRules: string[] = this.frameworks.guardrails.policies?.[agent.guardrailPolicy]
       ?? this.frameworks.guardrails.policies?.default ?? [];

@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS guardrail_sets (
 CREATE TABLE IF NOT EXISTS guardrail_rules (
   rule_id TEXT PRIMARY KEY, doc JSONB NOT NULL, ts TIMESTAMPTZ NOT NULL
 );
+CREATE TABLE IF NOT EXISTS prompt_overrides (
+  id TEXT PRIMARY KEY, doc JSONB NOT NULL, ts TIMESTAMPTZ NOT NULL,
+  agent TEXT GENERATED ALWAYS AS (doc->>'agent') STORED,
+  version INT GENERATED ALWAYS AS ((doc->>'version')::int) STORED
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_agent ON prompt_overrides (agent, version DESC);
 CREATE TABLE IF NOT EXISTS agent_resources (
   agent_name TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL,
   ts TIMESTAMPTZ NOT NULL,
@@ -48,6 +54,7 @@ export interface KnowledgeBase { kb_id: string; name: string; description?: stri
 export interface KbDocument { document_id: string; kb_id: string; title: string; content: string; ts: string; }
 export interface GuardrailSet { gr_id: string; name: string; description?: string; rule_ids: string[]; ts: string; }
 export interface GuardrailRuleDef { rule_id: string; name: string; description: string; severity: "block" | "escalate" | "warn"; source: "custom"; ts: string; }
+export interface PromptOverride { id: string; agent: string; version: number; prompt: string; author: string; ts: string; }
 export interface RetrievedDoc extends KbDocument { score: number; }
 
 const STOP = new Set("the a an and or of to in for on with is are be as at by it this that your you we our".split(" "));
@@ -55,7 +62,7 @@ const tokenize = (s: string) => (s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).f
 
 export class ResourceStore {
   private pool: pg.Pool | null = null;
-  private mem = { kbs: [] as KnowledgeBase[], docs: [] as KbDocument[], sets: [] as GuardrailSet[], rules: [] as GuardrailRuleDef[],
+  private mem = { kbs: [] as KnowledgeBase[], docs: [] as KbDocument[], sets: [] as GuardrailSet[], rules: [] as GuardrailRuleDef[], prompts: [] as PromptOverride[],
     links: [] as { agent_name: string; resource_type: string; resource_id: string; ts: string }[] };
 
   async init(pool: pg.Pool | null): Promise<void> {
@@ -141,6 +148,28 @@ export class ResourceStore {
   async deleteRule(id: string): Promise<void> {
     if (this.pool) await this.pool.query("DELETE FROM guardrail_rules WHERE rule_id=$1", [id]);
     else this.mem.rules = this.mem.rules.filter((r) => r.rule_id !== id);
+  }
+
+  // ---- Prompt overrides (editable, versioned agent prompts) ----
+  async savePrompt(agent: string, prompt: string, author: string): Promise<PromptOverride> {
+    const latest = await this.latestPrompt(agent);
+    const po: PromptOverride = { id: `po-${randomUUID()}`, agent, version: (latest?.version ?? 0) + 1, prompt, author, ts: this.now() };
+    if (this.pool) await this.pool.query("INSERT INTO prompt_overrides (id, doc, ts) VALUES ($1,$2,$3)", [po.id, JSON.stringify(po), po.ts]);
+    else this.mem.prompts.push(po);
+    return po;
+  }
+  async latestPrompt(agent: string): Promise<PromptOverride | null> {
+    if (this.pool) return (await this.pool.query("SELECT doc FROM prompt_overrides WHERE agent=$1 ORDER BY version DESC LIMIT 1", [agent])).rows[0]?.doc ?? null;
+    const mine = this.mem.prompts.filter((p) => p.agent === agent);
+    return mine.length ? mine.reduce((a, b) => (b.version > a.version ? b : a)) : null;
+  }
+  async promptVersions(agent: string): Promise<PromptOverride[]> {
+    if (this.pool) return (await this.pool.query("SELECT doc FROM prompt_overrides WHERE agent=$1 ORDER BY version DESC", [agent])).rows.map((r) => r.doc);
+    return this.mem.prompts.filter((p) => p.agent === agent).sort((a, b) => b.version - a.version);
+  }
+  async clearPrompts(agent: string): Promise<void> {
+    if (this.pool) await this.pool.query("DELETE FROM prompt_overrides WHERE agent=$1", [agent]);
+    else this.mem.prompts = this.mem.prompts.filter((p) => p.agent !== agent);
   }
 
   // ---- Attachments (many-to-many) ----
