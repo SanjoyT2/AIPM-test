@@ -12,8 +12,10 @@ import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { loadAgents } from "./agents.js";
 import { loadFrameworks } from "./config-loader.js";
+import { LmsStore } from "./content-store.js";
 import { DailyLoop } from "./daily-loop.js";
 import { EvidenceStore } from "./evidence-store.js";
+import { LearningEngine } from "./learning.js";
 import { Executor } from "./executor.js";
 import { LlmGateway } from "./gateway.js";
 import { Ledger } from "./ledger.js";
@@ -94,6 +96,9 @@ async function main() {
   const dailyLoop = new DailyLoop(executor, agents, frameworks, wa, resources);
   const signups = new Signups(wa);
   await signups.init(ledger.getPool());
+  const lms = new LmsStore();
+  await lms.init(ledger.getPool());
+  const learning = new LearningEngine(lms, evidence, gateway, dailyLoop, frameworks.versions.competency_framework);
 
   // Merged guardrail-rule catalog: built-in config rules (now plain-English,
   // LLM-enforced) + user-created custom rules. Used to validate sets + for the UI.
@@ -132,6 +137,60 @@ async function main() {
     return reply.code(r.ok ? 200 : 400).send(r);
   });
   app.get("/api/signup/stats", async () => signups.count());
+
+  // ---- LMS: courses -> modules -> lessons, enrollment, journey (the CMS) ----
+  app.get("/api/courses", async () => lms.listCourses());
+  app.post("/api/courses", async (req, reply) => {
+    const { title, outcome } = (req.body ?? {}) as { title?: string; outcome?: string };
+    if (!title) return reply.code(400).send({ error: "title is required" });
+    return reply.code(201).send(await lms.createCourse(title, outcome ?? ""));
+  });
+  app.get("/api/courses/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const course = await lms.getCourse(id);
+    if (!course) return reply.code(404).send({ error: "not found" });
+    const modules = await lms.listModules(id);
+    const withLessons = await Promise.all(modules.map(async (m) => ({ ...m, lessons: await lms.listLessons(m.module_id) })));
+    return { ...course, modules: withLessons };
+  });
+  app.post("/api/courses/:id/publish", async (req) => { await lms.setCourseStatus((req.params as { id: string }).id, "published"); return { ok: true }; });
+  app.post("/api/courses/:id/modules", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { title, order, competencies } = (req.body ?? {}) as { title?: string; order?: number; competencies?: string[] };
+    if (!title) return reply.code(400).send({ error: "title is required" });
+    return reply.code(201).send(await lms.addModule(id, title, order ?? 999, competencies ?? []));
+  });
+  app.post("/api/modules/:id/lessons", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as any;
+    if (!b.type || !b.competency_id || !b.title || !b.objective) return reply.code(400).send({ error: "type, competency_id, title, objective are required" });
+    return reply.code(201).send(await lms.addLesson(id, {
+      order: b.order ?? 999, type: b.type, competency_id: b.competency_id, title: b.title,
+      objective: b.objective, key_points: b.key_points ?? [], difficulty: b.difficulty ?? "core",
+      personalize: b.personalize ?? true, pass_mark: b.pass_mark ?? 60,
+    }));
+  });
+  app.put("/api/lessons/:id", async (req, reply) => {
+    const u = await lms.updateLesson((req.params as { id: string }).id, (req.body ?? {}) as any);
+    return u ? u : reply.code(404).send({ error: "not found" });
+  });
+  app.delete("/api/lessons/:id", async (req) => { await lms.deleteLesson((req.params as { id: string }).id); return { ok: true }; });
+
+  // Enrollment + a learner's journey progress.
+  app.post("/api/enroll", async (req, reply) => {
+    const { learner, course } = (req.body ?? {}) as { learner?: string; course?: string };
+    if (!learner || !course) return reply.code(400).send({ error: "learner and course are required" });
+    return reply.code(201).send(await lms.enroll(learner, course));
+  });
+  app.get("/api/learners/:id/journey", async (req) => {
+    const { id } = req.params as { id: string };
+    const enr = await lms.activeEnrollment(id);
+    if (!enr) return { learner_id: id, enrolled: false };
+    const p = await lms.getProgress(id, enr.course_id);
+    const journey = await lms.courseJourney(enr.course_id);
+    const next = await lms.nextStep(id, enr.course_id);
+    return { learner_id: id, enrolled: true, course_id: enr.course_id, completed: p.completed.length, total: journey.length, awaiting_lesson_id: p.awaiting_lesson_id, next_lesson: next ? { lesson_id: next.lesson_id, title: next.title, type: next.type, module: next.module_title } : null };
+  });
 
   app.get("/api/config/frameworks", async () => frameworks.versions);
   app.get("/api/config/frameworks/:name", async (req, reply) => {
@@ -446,10 +505,15 @@ async function main() {
       req.log.warn({ payload: req.body }, "11za inbound: unrecognized payload shape");
       return { received: true, routed: false };
     }
-    const result = await dailyLoop.handleInbound(from, text);
-    req.log.info({ from, ...result }, "11za inbound routed through executor");
-    // v0 echoes the reply in the response; the 11za outbound client will send it in-thread.
-    return { received: true, routed: true, ...result };
+    // Route through the LMS journey walker (serve lesson / grade / advance / advise).
+    dailyLoop.touch(from);
+    const result = await learning.onMessage(from, text);
+    if (result.reply) {
+      const sent = await wa.sendText(from, result.reply); // learner just messaged -> window open
+      if (!sent.ok && !sent.stub) req.log.warn(`wa send failed for ${from}: ${sent.detail}`);
+    }
+    req.log.info({ from, served: result.served_lesson_id, graded: result.graded, done: result.done }, "11za inbound walked");
+    return { received: true, routed: true, served_lesson_id: result.served_lesson_id, graded: result.graded, done: result.done };
   });
 
   // ---- Dev: simulate an inbound learner message (no 11za needed) ----
@@ -458,7 +522,7 @@ async function main() {
   if (settings.enableDevRoutes) {
     app.post("/api/dev/simulate-inbound", async (req) => {
       const { learner = "priya-sharma", text = "START" } = (req.body ?? {}) as { learner?: string; text?: string };
-      return dailyLoop.handleInbound(learner, text);
+      return learning.onMessage(learner, text);
     });
     app.log.warn("dev routes ENABLED (/api/dev/*) — unauthenticated; do not enable in production");
   }
