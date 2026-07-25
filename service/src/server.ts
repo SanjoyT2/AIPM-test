@@ -156,9 +156,9 @@ async function main() {
   app.post("/api/courses/:id/publish", async (req) => { await lms.setCourseStatus((req.params as { id: string }).id, "published"); return { ok: true }; });
   app.post("/api/courses/:id/modules", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { title, order, competencies } = (req.body ?? {}) as { title?: string; order?: number; competencies?: string[] };
+    const { title, order, competencies, milestone, human_spine } = (req.body ?? {}) as { title?: string; order?: number; competencies?: string[]; milestone?: { title: string; definition_of_done: string }; human_spine?: string };
     if (!title) return reply.code(400).send({ error: "title is required" });
-    return reply.code(201).send(await lms.addModule(id, title, order ?? 999, competencies ?? []));
+    return reply.code(201).send(await lms.addModule(id, title, order ?? 999, competencies ?? [], { milestone, human_spine }));
   });
   app.post("/api/modules/:id/lessons", async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -189,7 +189,48 @@ async function main() {
     const p = await lms.getProgress(id, enr.course_id);
     const journey = await lms.courseJourney(enr.course_id);
     const next = await lms.nextStep(id, enr.course_id);
-    return { learner_id: id, enrolled: true, course_id: enr.course_id, completed: p.completed.length, total: journey.length, awaiting_lesson_id: p.awaiting_lesson_id, next_lesson: next ? { lesson_id: next.lesson_id, title: next.title, type: next.type, module: next.module_title } : null };
+    const modules = await lms.moduleProgress(id, enr.course_id);
+    const project = await lms.getProject(id);
+    return {
+      learner_id: id, enrolled: true, course_id: enr.course_id,
+      completed: p.completed.length, total: journey.length, awaiting_lesson_id: p.awaiting_lesson_id,
+      next_lesson: next ? { lesson_id: next.lesson_id, title: next.title, type: next.type, module: next.module_title } : null,
+      project,
+      modules: modules.map((m) => ({ title: m.module.title, done: m.done, total: m.total, complete: m.complete, milestone: m.module.milestone })),
+    };
+  });
+
+  // The learner's one solution (project).
+  app.get("/api/learners/:id/project", async (req) => (await lms.getProject((req.params as { id: string }).id)) ?? { learner_id: (req.params as { id: string }).id, project: null });
+  app.post("/api/learners/:id/project", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { title?: string; stakeholder?: string; problem?: string; success_metric?: string; status?: string };
+    if (!b.title || !b.stakeholder) return reply.code(400).send({ error: "title and stakeholder are required" });
+    return reply.code(201).send(await lms.setProject({ learner_id: id, title: b.title, stakeholder: b.stakeholder, problem: b.problem ?? "", success_metric: b.success_metric ?? "", status: (b.status as any) ?? "scoping" }));
+  });
+
+  // Coach (AI Program Manager) weekly check-in.
+  app.post("/api/learners/:id/checkin", async (req) => {
+    const { id } = req.params as { id: string };
+    const { trigger } = (req.body ?? {}) as { trigger?: string };
+    return learning.checkIn(id, trigger);
+  });
+
+  // Coach cohort view: every enrolled learner with progress + status.
+  app.get("/api/cohort", async () => {
+    const enrs = await lms.listEnrollments();
+    const seen = new Set<string>();
+    const rows = [];
+    for (const e of enrs) {
+      if (seen.has(e.learner_id)) continue; seen.add(e.learner_id);
+      const mods = await lms.moduleProgress(e.learner_id, e.course_id);
+      const total = mods.reduce((a, m) => a + m.total, 0);
+      const done = mods.reduce((a, m) => a + m.done, 0);
+      const course = await lms.getCourse(e.course_id);
+      const project = await lms.getProject(e.learner_id);
+      rows.push({ learner_id: e.learner_id, course: course?.title ?? e.course_id, status: e.status, completed: done, total, modules_complete: mods.filter((m) => m.complete).length, modules_total: mods.length, project: project ? { title: project.title, stakeholder: project.stakeholder, status: project.status } : null });
+    }
+    return rows;
   });
 
   app.get("/api/config/frameworks", async () => frameworks.versions);

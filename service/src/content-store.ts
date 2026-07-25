@@ -27,11 +27,16 @@ CREATE INDEX IF NOT EXISTS idx_mod_course ON modules (course_id, ord);
 CREATE INDEX IF NOT EXISTS idx_les_module ON lessons (module_id, ord);
 CREATE INDEX IF NOT EXISTS idx_enr_learner ON enrollments (learner_id);
 CREATE TABLE IF NOT EXISTS lms_progress (id TEXT PRIMARY KEY, doc JSONB NOT NULL, ts TIMESTAMPTZ NOT NULL);
+CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, doc JSONB NOT NULL, ts TIMESTAMPTZ NOT NULL,
+  learner_id TEXT GENERATED ALWAYS AS (doc->>'learner_id') STORED);
 `;
 
 export type LessonType = "micro" | "quiz" | "task" | "roleplay";
 export interface Course { course_id: string; title: string; outcome: string; status: "draft" | "published"; ts: string; }
-export interface Module { module_id: string; course_id: string; title: string; order: number; competencies: string[]; ts: string; }
+export interface Milestone { title: string; definition_of_done: string; }
+export interface Module { module_id: string; course_id: string; title: string; order: number; competencies: string[]; milestone?: Milestone; human_spine?: string; ts: string; }
+/** A learner's ONE business solution — the spine of the FDE program. */
+export interface Project { project_id: string; learner_id: string; title: string; stakeholder: string; problem: string; success_metric: string; status: "scoping" | "building" | "deployed" | "handed_over"; ts: string; }
 export interface Lesson {
   lesson_id: string; module_id: string; order: number;
   type: LessonType; competency_id: string; title: string;
@@ -43,14 +48,14 @@ export interface Lesson {
   ts: string;
 }
 export interface Enrollment { enrollment_id: string; learner_id: string; course_id: string; status: "active" | "completed"; started_at: string; ts: string; }
-export interface Progress { id: string; learner_id: string; course_id: string; completed: string[]; awaiting_lesson_id: string | null; updated_at: string; }
+export interface Progress { id: string; learner_id: string; course_id: string; completed: string[]; awaiting_lesson_id: string | null; awaiting_item?: string; updated_at: string; }
 
 /** A resolved journey step: a lesson with its module context. */
 export interface JourneyStep extends Lesson { module_title: string; }
 
 export class LmsStore {
   private pool: pg.Pool | null = null;
-  private mem = { courses: [] as Course[], modules: [] as Module[], lessons: [] as Lesson[], enrollments: [] as Enrollment[], progress: [] as Progress[] };
+  private mem = { courses: [] as Course[], modules: [] as Module[], lessons: [] as Lesson[], enrollments: [] as Enrollment[], progress: [] as Progress[], projects: [] as Project[] };
 
   async init(pool: pg.Pool | null): Promise<void> { this.pool = pool; if (pool) await pool.query(DDL); }
   private now() { return new Date().toISOString(); }
@@ -78,8 +83,8 @@ export class LmsStore {
   }
 
   // ---- Modules ----
-  async addModule(courseId: string, title: string, order: number, competencies: string[]): Promise<Module> {
-    const m: Module = { module_id: `mod-${randomUUID()}`, course_id: courseId, title, order, competencies, ts: this.now() };
+  async addModule(courseId: string, title: string, order: number, competencies: string[], extra?: { milestone?: Milestone; human_spine?: string }): Promise<Module> {
+    const m: Module = { module_id: `mod-${randomUUID()}`, course_id: courseId, title, order, competencies, milestone: extra?.milestone, human_spine: extra?.human_spine, ts: this.now() };
     if (this.pool) await this.ins("modules", m.module_id, m); else this.mem.modules.push(m);
     return m;
   }
@@ -169,5 +174,31 @@ export class LmsStore {
     const p = await this.getProgress(learnerId, courseId);
     const done = new Set(p.completed);
     return (await this.courseJourney(courseId)).find((s) => !done.has(s.lesson_id)) ?? null;
+  }
+
+  /** Per-module completion for a learner — the weekly milestone view. */
+  async moduleProgress(learnerId: string, courseId: string): Promise<{ module: Module; done: number; total: number; complete: boolean }[]> {
+    const p = await this.getProgress(learnerId, courseId);
+    const done = new Set(p.completed);
+    const mods = await this.listModules(courseId);
+    const out = [];
+    for (const m of mods) {
+      const lessons = await this.listLessons(m.module_id);
+      const n = lessons.filter((l) => done.has(l.lesson_id)).length;
+      out.push({ module: m, done: n, total: lessons.length, complete: lessons.length > 0 && n === lessons.length });
+    }
+    return out;
+  }
+
+  // ---- Project (the learner's one solution) ----
+  async setProject(p: Omit<Project, "project_id" | "ts">): Promise<Project> {
+    const proj: Project = { ...p, project_id: `prj-${p.learner_id}`, ts: this.now() };
+    if (this.pool) await this.ins("projects", proj.project_id, proj);
+    else { this.mem.projects = this.mem.projects.filter((x) => x.learner_id !== p.learner_id); this.mem.projects.push(proj); }
+    return proj;
+  }
+  async getProject(learnerId: string): Promise<Project | null> {
+    if (this.pool) return (await this.pool.query("SELECT doc FROM projects WHERE learner_id=$1", [learnerId])).rows[0]?.doc ?? null;
+    return this.mem.projects.find((x) => x.learner_id === learnerId) ?? null;
   }
 }

@@ -22,6 +22,8 @@ const BINDINGS: Record<string, { tier: ModelTier; guardrailPolicy: string; criti
   mentor:    { tier: "fast", guardrailPolicy: "mentor",            criticPolicy: "conversational" },
   motivator: { tier: "fast", guardrailPolicy: "conversational",    criticPolicy: "conversational" },
   examiner:  { tier: "deep", guardrailPolicy: "summative_scoring", criticPolicy: "summative" },
+  coach:     { tier: "deep", guardrailPolicy: "conversational",    criticPolicy: "conversational" }, // AI Program Manager
+  assessor:  { tier: "deep", guardrailPolicy: "summative_scoring", criticPolicy: "summative" },      // generates personalized assessments
 };
 
 export function loadAgents(): Record<string, AgentSpec> {

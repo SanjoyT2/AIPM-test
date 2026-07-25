@@ -64,8 +64,8 @@ export class LearningEngine {
         return { reply: (tx.output as { text?: string })?.text ?? "" };
       }
       if (lesson) {
-        const g = await this.grade(lesson, text, learnerId);
-        p.completed.push(lesson.lesson_id); p.awaiting_lesson_id = null;
+        const g = await this.grade(lesson, text, learnerId, p.awaiting_item);
+        p.completed.push(lesson.lesson_id); p.awaiting_lesson_id = null; p.awaiting_item = undefined;
         await this.lms.saveProgress(p);
         const next = await this.serveNext(learnerId, courseId);
         const { reply: nextReply, ...nextRest } = next;
@@ -94,10 +94,42 @@ export class LearningEngine {
       p.completed.push(step.lesson_id); await this.lms.saveProgress(p);
       return { reply: `📖 *${step.title}*  ·  _${step.module_title}_\n\n${body}\n\n_Send anything to continue._`, course_id: courseId, served_lesson_id: step.lesson_id };
     }
+    // Personalized assessment: the Assessor agent generates the item for THIS learner.
+    const item = await this.generateItem(learnerId, step);
     const p = await this.lms.getProgress(learnerId, courseId);
-    p.awaiting_lesson_id = step.lesson_id; await this.lms.saveProgress(p);
+    p.awaiting_lesson_id = step.lesson_id; p.awaiting_item = item; await this.lms.saveProgress(p);
     const lead = step.type === "roleplay" ? "🎭 *Role-play*" : step.type === "task" ? "🛠️ *Task*" : "❓ *Quiz*";
-    return { reply: `${lead} — ${step.title}\n\n${step.objective}\n\n_Reply with your answer._`, course_id: courseId, served_lesson_id: step.lesson_id };
+    return { reply: `${lead} — ${step.title}\n\n${item}\n\n_Reply with your answer._`, course_id: courseId, served_lesson_id: step.lesson_id };
+  }
+
+  /** Assessor renders a personalized assessment item from the lesson brief. */
+  private async generateItem(learnerId: string, step: JourneyStep): Promise<string> {
+    const ctx = await this.learnerContext(learnerId);
+    const proj = await this.lms.getProject(learnerId);
+    const { tx } = await this.dailyLoop.runAgent("assessor", learnerId,
+      `Generate ONE ${step.type} assessment prompt for this learner (WhatsApp-answerable). Same competency and rigor, scenario tuned to them.\n\n` +
+      `Objective: ${step.objective}\nKey points: ${step.key_points.join("; ")}\nDifficulty: ${step.difficulty}\n` +
+      `Learner context: ${ctx}${proj ? `\nTheir project: ${proj.title} for ${proj.stakeholder} — ${proj.problem}` : ""}`,
+      { baseSources: [`assess:${step.lesson_id}`] });
+    return (tx.output as { text?: string })?.text?.trim() || step.objective;
+  }
+
+  /** Coach (AI Program Manager) weekly check-in over the learner's project + milestones. */
+  async checkIn(learnerId: string, trigger = "weekly check-in"): Promise<{ message: string; status: string; flag_reason?: string }> {
+    const enr = await this.lms.activeEnrollment(learnerId);
+    const project = await this.lms.getProject(learnerId);
+    const mods = enr ? await this.lms.moduleProgress(learnerId, enr.course_id) : [];
+    const ctx = await this.learnerContext(learnerId);
+    const modLine = mods.map((m) => `${m.module.title}: ${m.done}/${m.total}${m.module.milestone ? ` (milestone: ${m.module.milestone.title})` : ""}`).join(" | ");
+    const { tx } = await this.dailyLoop.runAgent("coach", learnerId,
+      `Trigger: ${trigger}.\nProject: ${project ? `${project.title} for ${project.stakeholder} — ${project.problem} — status ${project.status}` : "not scoped yet"}\n` +
+      `Weekly progress: ${modLine || "not enrolled"}\nRecent performance: ${ctx}\n\n` +
+      `Give a weekly check-in message, then on a final line output: STATUS: on_track|at_risk|flag — reason.`,
+      { baseSources: ["coach-checkin"] });
+    const text = (tx.output as { text?: string })?.text ?? "";
+    const m = /STATUS:\s*(on_track|at_risk|flag)\s*[-—:]?\s*(.*)$/im.exec(text);
+    const status = m?.[1]?.toLowerCase() ?? "on_track";
+    return { message: text.replace(/STATUS:.*$/im, "").trim(), status, flag_reason: status === "flag" ? (m?.[2] || "stopped shipping") : undefined };
   }
 
   /** Trainer renders the lesson brief into personalized content for this learner. */
@@ -153,12 +185,12 @@ export class LearningEngine {
     return `Recent avg ${avg}/100 over ${evs.length} items.` + (weak.length ? ` Weak on: ${[...new Set(weak)].join(", ")}.` : " Doing well.");
   }
 
-  private async grade(lesson: Lesson, answer: string, learnerId: string): Promise<{ score: number; passed: boolean; feedback: string; event_id: string }> {
+  private async grade(lesson: Lesson, answer: string, learnerId: string, servedItem?: string): Promise<{ score: number; passed: boolean; feedback: string; event_id: string }> {
     const deep = lesson.type === "roleplay" || lesson.type === "task";
     const res = await this.gateway.complete({
       tier: deep ? "deep" : "fast", role: "critic",
       system: "You grade a learner's answer for a vocational AI-skills program. Fair, encouraging, honest. Respond with ONLY JSON: {\"score\":0-100,\"feedback\":\"one or two warm concrete lines\"}.",
-      user: `Type: ${lesson.type}\nCompetency: ${lesson.competency_id}\nItem: ${lesson.objective}\nKey points: ${lesson.key_points.join("; ")}\n\nLearner's answer:\n${answer}`,
+      user: `Type: ${lesson.type}\nCompetency: ${lesson.competency_id}\nItem shown to learner: ${servedItem || lesson.objective}\nWhat good looks like: ${lesson.key_points.join("; ")}\n\nLearner's answer:\n${answer}`,
       maxTokens: 300,
     });
     let score = 0, feedback = "Recorded.";
