@@ -59,6 +59,13 @@ export const api = {
   cohort: () => get<CohortRow[]>("/api/cohort"),
   journey: (learner: string) => get<Journey>(`/api/learners/${encodeURIComponent(learner)}/journey`),
   checkin: (learner: string) => post<{ message: string; status: string; flag_reason?: string }>(`/api/learners/${encodeURIComponent(learner)}/checkin`, {}),
+  advance: async (learner: string, text: string, opKey: string) => {
+    const r = await fetch(`/api/learners/${encodeURIComponent(learner)}/advance`, {
+      method: "POST", headers: { "Content-Type": "application/json", "x-operator-key": opKey }, body: JSON.stringify({ text }),
+    });
+    if (!r.ok) throw new Error(r.status === 401 ? "Wrong operator key" : `${r.status} ${r.statusText}`);
+    return r.json() as Promise<{ reply: string; served_lesson_id?: string; graded?: { score: number; passed: boolean } }>;
+  },
 };
 
 async function del(path: string): Promise<unknown> {

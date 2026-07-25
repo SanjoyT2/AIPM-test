@@ -27,6 +27,9 @@ export const settings = {
   },
 
   /** WhatsApp via 11za. */
+  /** Operator/coach key gating authenticated operator actions (e.g. drive a journey). */
+  operatorKey: process.env.OPERATOR_KEY ?? "",
+
   wa: {
     apiBase: process.env.WA_API_BASE ?? "https://api.11za.in",
     apiToken: process.env.WA_API_TOKEN ?? "",          // 11za authToken (secret) — empty => outbound stub mode

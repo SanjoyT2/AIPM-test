@@ -216,6 +216,21 @@ async function main() {
     return learning.checkIn(id, trigger);
   });
 
+  // Operator-driven journey step (authenticated). Lets a coach walk a learner's real
+  // journey from the console before 11za is connected. Drives real LLM spend, so it
+  // requires the operator key and fails closed in production if that key is unset.
+  app.post("/api/learners/:id/advance", async (req, reply) => {
+    if (!settings.operatorKey) {
+      if (settings.env === "production") return reply.code(503).send({ error: "operator actions not configured (set OPERATOR_KEY)" });
+    } else if (!timingSafeEqualStr((req.headers["x-operator-key"] ?? "") as string, settings.operatorKey)) {
+      return reply.code(401).send({ error: "bad operator key" });
+    }
+    const { id } = req.params as { id: string };
+    const { text } = (req.body ?? {}) as { text?: string };
+    if (!text) return reply.code(400).send({ error: "text is required" });
+    return learning.onMessage(id, text);
+  });
+
   // Coach cohort view: every enrolled learner with progress + status.
   app.get("/api/cohort", async () => {
     const enrs = await lms.listEnrollments();
