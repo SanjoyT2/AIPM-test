@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Degree2Destiny — College to Career</title>
+<meta name="description" content="We turn graduates into AI Implementation Executives — trained on real client sites, then hired. No coding needed." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#0e1728; --ink2:#414a63; --muted:#7b8299;
+    --cream:#fbf8f3; --card:#ffffff; --line:rgba(14,23,40,.10);
+    --peach:#f4beb9; --blush:#e5c0d9; --lavender:#bfc0df; --mint:#d6eade; --sky:#c0e1f2; --peri:#afaad5;
+    --accent:#6a5fd0; --accent-soft:#efeefb;
+    --grad:linear-gradient(120deg,#f4beb9 0%,#e5c0d9 26%,#bfc0df 52%,#c0e1f2 78%,#d6eade 100%);
+    --serif:"Instrument Serif",Georgia,serif; --sans:"Inter",system-ui,sans-serif; --mono:"Geist Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:var(--sans);background:var(--cream);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit}
+  /* ambient sunrise washes */
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(60vw 50vh at 88% -8%, rgba(192,225,242,.55), transparent 60%),
+      radial-gradient(55vw 45vh at 6% 4%, rgba(244,190,185,.45), transparent 60%),
+      radial-gradient(70vw 55vh at 80% 108%, rgba(191,192,223,.40), transparent 60%);}
+  .wrap{position:relative;z-index:1;max-width:1160px;margin:0 auto;padding:0 28px}
+
+  header{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+  .brand{display:flex;align-items:center;gap:11px}
+  .mark{width:34px;height:34px;border-radius:9px;background:var(--grad);display:grid;place-items:center;color:#0e1728;font-weight:700;font-size:12px;letter-spacing:-.02em}
+  .brand .name{font-family:var(--serif);font-size:22px;line-height:1}
+  .brand .tag{font-size:11px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
+  header .signin{font-size:13px;color:var(--muted);text-decoration:none}
+  header .signin:hover{color:var(--ink)}
+
+  .hero{display:grid;grid-template-columns:1.15fr .85fr;gap:56px;align-items:start;padding:40px 0 30px}
+  .eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:18px}
+  h1{font-family:var(--serif);font-weight:400;font-size:64px;line-height:1.02;letter-spacing:.005em;margin:0 0 22px}
+  h1 em{font-style:italic;color:var(--accent)}
+  .lead{font-size:18px;color:var(--ink2);max-width:30em;margin:0 0 30px}
+  .lead b{font-weight:600;color:var(--ink)}
+
+  .stats{display:flex;gap:34px;flex-wrap:wrap;padding:22px 0 6px;border-top:1px solid var(--line)}
+  .stat .n{font-family:var(--mono);font-size:30px;font-weight:500;letter-spacing:-.02em}
+  .stat .l{font-size:12.5px;color:var(--muted);margin-top:2px}
+
+  .become{margin-top:34px;padding:22px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.55);backdrop-filter:blur(6px)}
+  .become h3{font-family:var(--serif);font-weight:400;font-size:23px;margin:0 0 6px}
+  .become p{font-size:14.5px;color:var(--ink2);margin:0 0 14px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-size:12px;padding:5px 12px;border-radius:99px;background:var(--cream);border:1px solid var(--line);color:var(--ink2)}
+
+  .can{display:flex;gap:14px;margin-top:26px;flex-wrap:wrap}
+  .can div{flex:1;min-width:120px}
+  .can .k{font-family:var(--serif);font-size:19px}
+  .can .v{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .can .b{width:26px;height:3px;border-radius:2px;background:var(--grad);margin-bottom:9px}
+
+  /* signup card */
+  .card{position:sticky;top:24px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 18px 50px -22px rgba(14,23,40,.28)}
+  .card .cap{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .card h2{font-family:var(--serif);font-weight:400;font-size:27px;margin:6px 0 4px}
+  .card .sub{font-size:13.5px;color:var(--muted);margin-bottom:18px}
+  label{display:block;font-size:12.5px;color:var(--ink2);font-weight:500;margin:12px 0 5px}
+  input{width:100%;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 14px;font-family:var(--sans);font-size:15px;color:var(--ink);background:#fff;transition:border-color .15s,box-shadow .15s}
+  input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  input#otp{font-family:var(--mono);letter-spacing:.5em;text-align:center;font-size:20px}
+  .btn{width:100%;height:48px;margin-top:18px;border:none;border-radius:12px;background:var(--ink);color:#fff;font-family:var(--sans);font-size:15px;font-weight:500;cursor:pointer;transition:transform .12s,opacity .15s;display:flex;align-items:center;justify-content:center;gap:8px}
+  .btn:hover{transform:translateY(-1px)}
+  .btn:disabled{opacity:.55;cursor:default;transform:none}
+  .btn.ghost{background:transparent;color:var(--accent);height:auto;margin-top:12px;font-size:13px}
+  .msg{font-size:13px;margin-top:12px;padding:10px 12px;border-radius:10px;display:none}
+  .msg.err{display:block;background:#fdecec;color:#b0344b;border:1px solid #f6cfcf}
+  .msg.ok{display:block;background:#eaf6ef;color:#2c7a52;border:1px solid #cfe9da}
+  .msg.hint{display:block;background:var(--accent-soft);color:var(--accent);border:1px solid #dcd8f7}
+  .fine{font-size:11.5px;color:var(--muted);margin-top:14px;line-height:1.5}
+  .wa{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:#1f8a5b}
+
+  .success{text-align:center;padding:14px 4px}
+  .success .big{font-family:var(--serif);font-size:30px;margin:6px 0 8px}
+  .success .tick{width:56px;height:56px;border-radius:50%;background:var(--grad);display:grid;place-items:center;margin:0 auto 14px;font-size:26px;color:#0e1728}
+  .hidden{display:none}
+
+  footer{position:relative;z-index:1;border-top:1px solid var(--line);margin-top:60px;padding:26px 0 40px;color:var(--muted);font-size:12.5px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+
+  @media(max-width:860px){
+    .hero{grid-template-columns:1fr;gap:34px}
+    h1{font-size:46px}
+    .card{position:static}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="mark">D2D</div>
+      <div>
+        <div class="name">Degree2Destiny</div>
+        <div class="tag">College to Career</div>
+      </div>
+    </div>
+    <a class="signin" href="/">Operator sign in →</a>
+  </header>
+
+  <section class="hero">
+    <div>
+      <div class="eyebrow">The flagship · AI Implementation Executive</div>
+      <h1>A degree got you<br>in the door.<br><em>We get you hired.</em></h1>
+      <p class="lead">Too many smart people walk out of college with a degree and no idea how to actually use it. D2D takes you — any stream, <b>no coding needed</b> — and trains you from zero on real client sites to run AI inside a live business. Not demo it. Run it.</p>
+
+      <div class="stats">
+        <div class="stat"><div class="n">4,100+</div><div class="l">people trained</div></div>
+        <div class="stat"><div class="n">2023</div><div class="l">founded</div></div>
+        <div class="stat"><div class="n">$37K</div><div class="l">Northeastern-funded</div></div>
+        <div class="stat"><div class="n">3–6 mo</div><div class="l">live deployments</div></div>
+      </div>
+
+      <div class="become">
+        <h3>What you walk out as</h3>
+        <p>An AI implementer the market actually pays for — deployed full-time inside real businesses, then hired into one.</p>
+        <div class="chips">
+          <span class="chip">Fashion</span><span class="chip">Manufacturing</span>
+          <span class="chip">Logistics</span><span class="chip">Financial distribution</span>
+          <span class="chip">Trained in Kolkata, on real sites</span>
+        </div>
+      </div>
+
+      <div class="can">
+        <div><div class="b"></div><div class="k">Communication</div><div class="v">Talk to a room, and a client.</div></div>
+        <div><div class="b"></div><div class="k">AI</div><div class="v">Use it as a working tool.</div></div>
+        <div><div class="b"></div><div class="k">Networking</div><div class="v">Build what gets you hired.</div></div>
+      </div>
+    </div>
+
+    <!-- signup card -->
+    <div class="card">
+      <div id="step-form">
+        <div class="cap">Apply to join</div>
+        <h2>Start your intake</h2>
+        <div class="sub">Takes 30 seconds. We verify on WhatsApp.</div>
+        <label for="name">Name <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <input id="name" type="text" placeholder="Priya Sharma" autocomplete="name" />
+        <label for="phone">WhatsApp number</label>
+        <input id="phone" type="tel" placeholder="98765 43210" autocomplete="tel" inputmode="numeric" />
+        <label for="email">Email</label>
+        <input id="email" type="email" placeholder="you@email.com" autocomplete="email" />
+        <button class="btn" id="btn-send">Send code to WhatsApp</button>
+        <div class="msg" id="msg1"></div>
+        <div class="fine">We'll send a 6-digit code to your <span class="wa">✓ WhatsApp</span>. By continuing you agree to be contacted about your D2D intake.</div>
+      </div>
+
+      <div id="step-otp" class="hidden">
+        <div class="cap">Verify</div>
+        <h2>Enter your code</h2>
+        <div class="sub">Sent on WhatsApp to <b id="otp-phone"></b>.</div>
+        <label for="otp">6-digit code</label>
+        <input id="otp" type="text" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="one-time-code" />
+        <button class="btn" id="btn-verify">Verify &amp; join</button>
+        <button class="btn ghost" id="btn-back">← Change number</button>
+        <div class="msg" id="msg2"></div>
+      </div>
+
+      <div id="step-done" class="hidden">
+        <div class="success">
+          <div class="tick">✓</div>
+          <div class="cap">You're in</div>
+          <div class="big">Welcome to D2D.</div>
+          <p style="font-size:14px;color:var(--ink2);margin:0 auto;max-width:26em">Your seat is confirmed. We'll message you on <span class="wa">WhatsApp</span> to begin — reply <b>START</b> and your first day kicks off.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>Degree2Destiny — a social-impact venture · Since 2023 · Kolkata, India</div>
+    <div>Communication · AI · Networking</div>
+  </footer>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let phone = "";
+  const show = (el, cls, text) => { el.className = "msg " + cls; el.textContent = text; };
+  const hide = (el) => { el.className = "msg"; el.textContent = ""; };
+
+  $("btn-send").onclick = async () => {
+    const btn = $("btn-send"); hide($("msg1"));
+    const name = $("name").value.trim(), p = $("phone").value.trim(), email = $("email").value.trim();
+    if (!p || !email) { show($("msg1"), "err", "Enter your WhatsApp number and email."); return; }
+    btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      const r = await fetch("/api/signup", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name, phone:p, email }) });
+      const d = await r.json();
+      if (!d.ok) { show($("msg1"), "err", d.error || "Something went wrong."); return; }
+      phone = p;
+      $("otp-phone").textContent = p;
+      $("step-form").classList.add("hidden"); $("step-otp").classList.remove("hidden");
+      $("otp").focus();
+      if (d.dev_otp) show($("msg2"), "hint", "Test mode — your code is " + d.dev_otp + " (WhatsApp sending is off until the number is connected).");
+    } catch (e) { show($("msg1"), "err", "Network error. Try again."); }
+    finally { btn.disabled = false; btn.textContent = "Send code to WhatsApp"; }
+  };
+
+  $("btn-verify").onclick = async () => {
+    const btn = $("btn-verify");
+    const otp = $("otp").value.trim();
+    if (otp.length < 6) { show($("msg2"), "err", "Enter the 6-digit code."); return; }
+    btn.disabled = true; btn.textContent = "Verifying…";
+    try {
+      const r = await fetch("/api/signup/verify", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ phone, otp }) });
+      const d = await r.json();
+      if (!d.ok) { show($("msg2"), "err", d.error || "Incorrect code."); return; }
+      $("step-otp").classList.add("hidden"); $("step-done").classList.remove("hidden");
+    } catch (e) { show($("msg2"), "err", "Network error. Try again."); }
+    finally { btn.disabled = false; btn.textContent = "Verify & join"; }
+  };
+
+  $("btn-back").onclick = () => { $("step-otp").classList.add("hidden"); $("step-form").classList.remove("hidden"); hide($("msg2")); };
+  $("otp").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-verify").click(); });
+  $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-send").click(); });
+</script>
+</body>
+</html>

@@ -21,6 +21,7 @@ import { MeasurementEngine } from "./measurement.js";
 import { OperatorActionStore } from "./operator-actions.js";
 import { ResourceStore } from "./resource-store.js";
 import { settings } from "./settings.js";
+import { Signups } from "./signups.js";
 import type { AgentTransaction, EvidenceEvent } from "./types.js";
 import { compileSchema } from "./validation.js";
 import { WaClient } from "./wa-client.js";
@@ -91,6 +92,8 @@ async function main() {
     console.info(`[wa] 11za outbound live — base=${settings.wa.apiBase}`);
   }
   const dailyLoop = new DailyLoop(executor, agents, frameworks, wa, resources);
+  const signups = new Signups(wa);
+  await signups.init(ledger.getPool());
 
   // Merged guardrail-rule catalog: built-in config rules (now plain-English,
   // LLM-enforced) + user-created custom rules. Used to validate sets + for the UI.
@@ -114,6 +117,21 @@ async function main() {
     whatsapp: wa.stubMode ? "stub" : "live",
     framework_versions: frameworks.versions,
   }));
+
+  // ---- Public signup (landing page) — WhatsApp OTP onboarding ----
+  app.post("/api/signup", async (req, reply) => {
+    const { name, phone, email } = (req.body ?? {}) as { name?: string; phone?: string; email?: string };
+    if (!phone || !email) return reply.code(400).send({ ok: false, error: "Phone and email are required." });
+    const r = await signups.startSignup({ name, phone, email });
+    return reply.code(r.ok ? 200 : 400).send(r);
+  });
+  app.post("/api/signup/verify", async (req, reply) => {
+    const { phone, otp } = (req.body ?? {}) as { phone?: string; otp?: string };
+    if (!phone || !otp) return reply.code(400).send({ ok: false, error: "Phone and code are required." });
+    const r = await signups.verify(phone, otp);
+    return reply.code(r.ok ? 200 : 400).send(r);
+  });
+  app.get("/api/signup/stats", async () => signups.count());
 
   app.get("/api/config/frameworks", async () => frameworks.versions);
   app.get("/api/config/frameworks/:name", async (req, reply) => {
@@ -373,10 +391,14 @@ async function main() {
     return { ok: true, action, agent: name, type, resource_id };
   });
 
-  // ---- Cockpit dashboard (built SPA, when present) ----
+  // ---- Public landing page (learner signup) + Cockpit SPA ----
   if (fs.existsSync(path.join(settings.dashboardDir, "index.html"))) {
     await app.register(fastifyStatic, { root: settings.dashboardDir, wildcard: false });
-    // SPA fallback: unmatched GET routes render the app (client-side router takes over).
+    // Landing page is the public front door: /join (and /start alias).
+    const landing = (_req: unknown, reply: any) => reply.type("text/html").sendFile("join.html");
+    app.get("/join", landing);
+    app.get("/start", landing);
+    // SPA fallback: unmatched GET routes render the operator console.
     app.setNotFoundHandler((req, reply) => {
       if (req.method === "GET" && !req.url.startsWith("/api") && !req.url.startsWith("/webhooks")) {
         return reply.sendFile("index.html");
