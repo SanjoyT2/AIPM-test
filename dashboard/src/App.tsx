@@ -1,6 +1,8 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import AgentDetail from "./views/AgentDetail";
+import Cohort from "./views/Cohort";
 import Costs from "./views/Costs";
+import Courses from "./views/Courses";
 import Frameworks from "./views/Frameworks";
 import GuardrailSets from "./views/GuardrailSets";
 import Knowledge from "./views/Knowledge";
@@ -24,6 +26,8 @@ export default function App() {
         </div>
         <nav className="nav">
           <NavLink to="/" end>Overview</NavLink>
+          <NavLink to="/cohort">Cohort</NavLink>
+          <NavLink to="/courses">Courses</NavLink>
           <NavLink to="/learners">Learners</NavLink>
           <NavLink to="/studio">Agent Studio</NavLink>
           <NavLink to="/knowledge">Knowledge</NavLink>
@@ -36,6 +40,8 @@ export default function App() {
       <main className="main">
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/cohort" element={<Cohort />} />
+          <Route path="/courses" element={<Courses />} />
           <Route path="/learners" element={<Learners />} />
           <Route path="/learners/:id" element={<LearnerDetail />} />
           <Route path="/studio" element={<Studio />} />

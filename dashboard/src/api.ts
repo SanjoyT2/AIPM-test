@@ -1,4 +1,4 @@
-import type { AgentDetail, AgentSummary, AgentTransaction, CostRollupRow, GuardrailRuleDef, GuardrailSet, Health, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary } from "./types";
+import type { AgentDetail, AgentSummary, AgentTransaction, CohortRow, CostRollupRow, GuardrailRuleDef, GuardrailSet, Health, Journey, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary } from "./types";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -52,6 +52,13 @@ export const api = {
   guardrailSets: () => get<GuardrailSet[]>("/api/guardrails/sets"),
   createGuardrailSet: (name: string, rule_ids: string[], description?: string) => post<GuardrailSet>("/api/guardrails/sets", { name, rule_ids, description }),
   deleteGuardrailSet: (id: string) => del(`/api/guardrails/sets/${encodeURIComponent(id)}`),
+
+  // LMS / cohort
+  courses: () => get<{ course_id: string; title: string; outcome: string; status: string }[]>("/api/courses"),
+  course: (id: string) => get<any>(`/api/courses/${encodeURIComponent(id)}`),
+  cohort: () => get<CohortRow[]>("/api/cohort"),
+  journey: (learner: string) => get<Journey>(`/api/learners/${encodeURIComponent(learner)}/journey`),
+  checkin: (learner: string) => post<{ message: string; status: string; flag_reason?: string }>(`/api/learners/${encodeURIComponent(learner)}/checkin`, {}),
 };
 
 async function del(path: string): Promise<unknown> {

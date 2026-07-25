@@ -115,6 +115,19 @@ export interface GuardrailRuleDef {
   rule_id: string; name: string; description: string; severity: string; source: "built-in" | "custom";
 }
 
+export interface CohortRow {
+  learner_id: string; course: string; status: string;
+  completed: number; total: number; modules_complete: number; modules_total: number;
+  project: { title: string; stakeholder: string; status: string } | null;
+}
+export interface Journey {
+  learner_id: string; enrolled: boolean; course_id?: string;
+  completed?: number; total?: number;
+  next_lesson?: { lesson_id: string; title: string; type: string; module: string } | null;
+  project?: { title: string; stakeholder: string; problem: string; success_metric: string; status: string } | null;
+  modules?: { title: string; done: number; total: number; complete: boolean; milestone?: { title: string; definition_of_done: string } }[];
+}
+
 export interface LearnerMeasurement {
   learner_id: string;
   mastery: { competency_id: string; name: string; estimate: number; at_threshold: boolean; threshold: number; evidence_count: number }[];
