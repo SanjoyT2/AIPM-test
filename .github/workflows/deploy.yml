@@ -107,7 +107,8 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@${EC2_HOST}:/opt/d2d/docker-compose.prod.yml"
-          scp -i ~/.ssh/id_ed25519 env.prod                "ec2-user@${EC2_HOST}:/opt/d2d/.env"
+          scp -i ~/.ssh/id_ed25519 Caddyfile              "ec2-user@${EC2_HOST}:/opt/d2d/Caddyfile"
+          scp -i ~/.ssh/id_ed25519 env.prod               "ec2-user@${EC2_HOST}:/opt/d2d/.env"
 
       # GITHUB_TOKEN is a valid GHCR credential for the life of this job, so the box can
       # pull a private package without us storing a long-lived PAT on it. Piped over

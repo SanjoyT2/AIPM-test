@@ -1,15 +1,13 @@
 # Production compose for the D2D EC2 box.
-# Differs from docker-compose.yml in two ways: no local Postgres (DATABASE_URL points
-# at the managed cloud instance) and the image comes from GHCR rather than a local build.
-# CI writes this file plus .env into /opt/d2d and runs `docker compose -f ... up -d`.
+# Caddy handles HTTPS automatically (Let's Encrypt). The app is internal-only.
+# CI writes this file + Caddyfile + .env into /opt/d2d and runs docker compose up -d.
 services:
   api:
-    # Pinned to the commit SHA by CI (see .env) so a deploy is immutable and rollback
-    # is just re-running an older workflow.
     image: ${IMAGE:-ghcr.io/sanjoyt2/aipm-test:latest}
     restart: always
-    ports:
-      - "80:8000"
+    # No host port — Caddy is the only entry point.
+    expose:
+      - "8000"
     env_file:
       - .env
     healthcheck:
@@ -27,3 +25,26 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 (QUIC)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  caddy_data:   {}   # persists TLS certificates across restarts
+  caddy_config: {}
