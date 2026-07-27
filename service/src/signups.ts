@@ -119,6 +119,28 @@ export class Signups {
     return { ok: true, learner: this.publicView(verified) };
   }
 
+  /**
+   * The operator's roster of real registrants, newest first. OTP material is stripped
+   * — a live hash plus its expiry is enough to finish someone else's verification.
+   */
+  async list(limit = 500): Promise<Omit<Learner, "otp_hash" | "otp_expires" | "otp_sent_at">[]> {
+    const strip = (l: Learner) => {
+      const { otp_hash: _h, otp_expires: _e, otp_sent_at: _s, ...safe } = l;
+      return safe;
+    };
+    if (this.col) {
+      const docs = await this.col.find({}).sort({ created_at: -1 }).limit(limit).toArray();
+      return docs.map((d) => {
+        const { _id: _drop, ...l } = d as any;
+        return strip(l as Learner);
+      });
+    }
+    return [...this.mem.values()]
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .slice(0, limit)
+      .map(strip);
+  }
+
   async count(): Promise<{ verified: number; pending: number }> {
     if (this.col) {
       const [v, p] = await Promise.all([

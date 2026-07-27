@@ -6,7 +6,8 @@ import "./theme.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    {/* The console is mounted under /app — "/" belongs to the public landing page. */}
+    <BrowserRouter basename="/app">
       <App />
     </BrowserRouter>
   </React.StrictMode>,

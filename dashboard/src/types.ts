@@ -120,6 +120,44 @@ export interface CohortRow {
   completed: number; total: number; modules_complete: number; modules_total: number;
   project: { title: string; stakeholder: string; status: string } | null;
 }
+/** The four lesson shapes the Trainer knows how to render. */
+export const LESSON_TYPES = ["micro", "quiz", "roleplay", "task"] as const;
+export type LessonType = (typeof LESSON_TYPES)[number];
+
+export interface Milestone { title: string; definition_of_done: string }
+
+export interface CourseSummary {
+  course_id: string; title: string; outcome: string; status: string; ts?: string;
+}
+export interface LessonRow {
+  lesson_id: string; module_id?: string; order: number; type: LessonType;
+  competency_id: string; title: string; objective: string;
+  key_points?: string[]; difficulty?: string; personalize?: boolean; pass_mark?: number;
+}
+export interface ModuleRow {
+  module_id: string; title: string; order: number;
+  competencies?: string[]; milestone?: Milestone; human_spine?: string;
+  lessons?: LessonRow[];
+}
+export interface CourseDetail extends CourseSummary { modules?: ModuleRow[] }
+
+/** Authoring payloads — what the create forms send. */
+export interface NewModule {
+  title: string; order?: number; competencies?: string[];
+  milestone?: Milestone; human_spine?: string;
+}
+export interface NewLesson {
+  order?: number; type: LessonType; competency_id: string; title: string;
+  objective: string; key_points?: string[]; difficulty?: string;
+  personalize?: boolean; pass_mark?: number;
+}
+
+/** A real registrant from the public landing-page funnel. OTP fields never leave the server. */
+export interface Signup {
+  learner_id: string; phone: string; email?: string; name?: string;
+  status: "pending" | "verified"; created_at: string; verified_at?: string;
+}
+
 export interface Journey {
   learner_id: string; enrolled: boolean; course_id?: string;
   completed?: number; total?: number;

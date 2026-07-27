@@ -23,7 +23,7 @@ import { MeasurementEngine } from "./measurement.js";
 import { OperatorActionStore } from "./operator-actions.js";
 import { ResourceStore } from "./resource-store.js";
 import { settings } from "./settings.js";
-import { Signups } from "./signups.js";
+import { normalizePhone, Signups } from "./signups.js";
 import type { AgentTransaction, EvidenceEvent } from "./types.js";
 import { compileSchema } from "./validation.js";
 import { WaClient } from "./wa-client.js";
@@ -40,6 +40,30 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 }
 
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/**
+ * Operator gate for anything that writes curriculum or learner records. Returns true
+ * when the request was refused, so callers read as `if (denyNonOperator(...)) return;`.
+ *
+ * Fails closed in production: an unset OPERATOR_KEY means refuse, never wave through.
+ * Outside production it warns and allows, so local dev and the seed scripts still work.
+ */
+function denyNonOperator(req: any, reply: any): boolean {
+  if (!settings.operatorKey) {
+    if (settings.env === "production") {
+      req.log.error(`${req.method} ${req.url} requires an operator key but OPERATOR_KEY is unset — refusing (fail closed)`);
+      reply.code(503).send({ error: "operator actions not configured (set OPERATOR_KEY)" });
+      return true;
+    }
+    req.log.warn(`OPERATOR_KEY unset — ${req.method} ${req.url} is UNAUTHENTICATED (allowed in non-production only)`);
+    return false;
+  }
+  if (!timingSafeEqualStr((req.headers["x-operator-key"] ?? "") as string, settings.operatorKey)) {
+    reply.code(401).send({ error: "bad operator key" });
+    return true;
+  }
+  return false;
+}
 
 async function main() {
   // 1. Frameworks (throws on invalid config — refuse to boot)
@@ -137,10 +161,18 @@ async function main() {
     return reply.code(r.ok ? 200 : 400).send(r);
   });
   app.get("/api/signup/stats", async () => signups.count());
+  // The operator's roster of real registrants. Gated: this is learner PII (phone, email),
+  // unlike /api/signup/stats which is only a count.
+  app.get("/api/signups", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
+    const { limit } = (req.query ?? {}) as { limit?: string };
+    return signups.list(Math.min(Number(limit) || 500, 1000));
+  });
 
   // ---- LMS: courses -> modules -> lessons, enrollment, journey (the CMS) ----
   app.get("/api/courses", async () => lms.listCourses());
   app.post("/api/courses", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
     const { title, outcome } = (req.body ?? {}) as { title?: string; outcome?: string };
     if (!title) return reply.code(400).send({ error: "title is required" });
     return reply.code(201).send(await lms.createCourse(title, outcome ?? ""));
@@ -153,14 +185,23 @@ async function main() {
     const withLessons = await Promise.all(modules.map(async (m) => ({ ...m, lessons: await lms.listLessons(m.module_id) })));
     return { ...course, modules: withLessons };
   });
-  app.post("/api/courses/:id/publish", async (req) => { await lms.setCourseStatus((req.params as { id: string }).id, "published"); return { ok: true }; });
+  app.post("/api/courses/:id/publish", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
+    const { status } = (req.body ?? {}) as { status?: string };
+    // Publishing is reversible — an operator can pull a course back to draft.
+    const next = status === "draft" ? "draft" : "published";
+    await lms.setCourseStatus((req.params as { id: string }).id, next as any);
+    return { ok: true, status: next };
+  });
   app.post("/api/courses/:id/modules", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
     const { id } = req.params as { id: string };
     const { title, order, competencies, milestone, human_spine } = (req.body ?? {}) as { title?: string; order?: number; competencies?: string[]; milestone?: { title: string; definition_of_done: string }; human_spine?: string };
     if (!title) return reply.code(400).send({ error: "title is required" });
     return reply.code(201).send(await lms.addModule(id, title, order ?? 999, competencies ?? [], { milestone, human_spine }));
   });
   app.post("/api/modules/:id/lessons", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
     const { id } = req.params as { id: string };
     const b = (req.body ?? {}) as any;
     if (!b.type || !b.competency_id || !b.title || !b.objective) return reply.code(400).send({ error: "type, competency_id, title, objective are required" });
@@ -171,13 +212,19 @@ async function main() {
     }));
   });
   app.put("/api/lessons/:id", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
     const u = await lms.updateLesson((req.params as { id: string }).id, (req.body ?? {}) as any);
     return u ? u : reply.code(404).send({ error: "not found" });
   });
-  app.delete("/api/lessons/:id", async (req) => { await lms.deleteLesson((req.params as { id: string }).id); return { ok: true }; });
+  app.delete("/api/lessons/:id", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
+    await lms.deleteLesson((req.params as { id: string }).id);
+    return { ok: true };
+  });
 
   // Enrollment + a learner's journey progress.
   app.post("/api/enroll", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
     const { learner, course } = (req.body ?? {}) as { learner?: string; course?: string };
     if (!learner || !course) return reply.code(400).send({ error: "learner and course are required" });
     return reply.code(201).send(await lms.enroll(learner, course));
@@ -203,6 +250,7 @@ async function main() {
   // The learner's one solution (project).
   app.get("/api/learners/:id/project", async (req) => (await lms.getProject((req.params as { id: string }).id)) ?? { learner_id: (req.params as { id: string }).id, project: null });
   app.post("/api/learners/:id/project", async (req, reply) => {
+    if (denyNonOperator(req, reply)) return;
     const { id } = req.params as { id: string };
     const b = (req.body ?? {}) as { title?: string; stakeholder?: string; problem?: string; success_metric?: string; status?: string };
     if (!b.title || !b.stakeholder) return reply.code(400).send({ error: "title and stakeholder are required" });
@@ -220,11 +268,7 @@ async function main() {
   // journey from the console before 11za is connected. Drives real LLM spend, so it
   // requires the operator key and fails closed in production if that key is unset.
   app.post("/api/learners/:id/advance", async (req, reply) => {
-    if (!settings.operatorKey) {
-      if (settings.env === "production") return reply.code(503).send({ error: "operator actions not configured (set OPERATOR_KEY)" });
-    } else if (!timingSafeEqualStr((req.headers["x-operator-key"] ?? "") as string, settings.operatorKey)) {
-      return reply.code(401).send({ error: "bad operator key" });
-    }
+    if (denyNonOperator(req, reply)) return;
     const { id } = req.params as { id: string };
     const { text } = (req.body ?? {}) as { text?: string };
     if (!text) return reply.code(400).send({ error: "text is required" });
@@ -524,19 +568,25 @@ async function main() {
 
   // ---- Public landing page (learner signup) + Cockpit SPA ----
   if (fs.existsSync(path.join(settings.dashboardDir, "index.html"))) {
-    await app.register(fastifyStatic, { root: settings.dashboardDir, wildcard: false });
-    // Landing page is the public front door: /join (and /start alias).
+    // index:false keeps "/" unclaimed by the static plugin so the landing page can own it.
+    // Without it, fastify-static answers "/" with the console shell and the route below
+    // would collide.
+    await app.register(fastifyStatic, { root: settings.dashboardDir, wildcard: false, index: false });
+    // The public front door is the brand landing page. The operator console lives under
+    // /app so a student typing the bare domain never lands in the internal cockpit.
     const landing = (_req: unknown, reply: any) => reply.type("text/html").sendFile("join.html");
+    app.get("/", landing);
     app.get("/join", landing);
     app.get("/start", landing);
-    // SPA fallback: unmatched GET routes render the operator console.
+    // SPA fallback: unmatched GET routes render the operator console, whose router is
+    // mounted at basename "/app".
     app.setNotFoundHandler((req, reply) => {
       if (req.method === "GET" && !req.url.startsWith("/api") && !req.url.startsWith("/webhooks")) {
         return reply.sendFile("index.html");
       }
       return reply.code(404).send({ error: "not found" });
     });
-    app.log.info(`dashboard: serving ${settings.dashboardDir}`);
+    app.log.info(`dashboard: serving ${settings.dashboardDir} (landing at /, console at /app)`);
   }
 
   // ---- 11za inbound webhook (ADR-005) → daily loop → executor ----
@@ -561,14 +611,20 @@ async function main() {
       req.log.warn({ payload: req.body }, "11za inbound: unrecognized payload shape");
       return { received: true, routed: false };
     }
+    // Resolve the sender to the SAME learner id the signup funnel minted (lrn-<e164>).
+    // 11za sends whatever the handset presents ("+91 98765 43210", "919876543210", ...);
+    // walking the journey under that raw string would fork a second identity for the
+    // same person and silently re-enrol them, orphaning whatever the coach enrolled.
+    const normalized = normalizePhone(from);
+    const learnerId = normalized ? `lrn-${normalized}` : from;
     // Route through the LMS journey walker (serve lesson / grade / advance / advise).
-    dailyLoop.touch(from);
-    const result = await learning.onMessage(from, text);
+    dailyLoop.touch(learnerId);
+    const result = await learning.onMessage(learnerId, text);
     if (result.reply) {
-      const sent = await wa.sendText(from, result.reply); // learner just messaged -> window open
+      const sent = await wa.sendText(from, result.reply); // reply to the handset, not the id
       if (!sent.ok && !sent.stub) req.log.warn(`wa send failed for ${from}: ${sent.detail}`);
     }
-    req.log.info({ from, served: result.served_lesson_id, graded: result.graded, done: result.done }, "11za inbound walked");
+    req.log.info({ from, learnerId, served: result.served_lesson_id, graded: result.graded, done: result.done }, "11za inbound walked");
     return { received: true, routed: true, served_lesson_id: result.served_lesson_id, graded: result.graded, done: result.done };
   });
 

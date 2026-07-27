@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, opKey } from "../api";
 import { Empty, Panel } from "../components";
 import type { CohortRow, Journey } from "../types";
 
@@ -14,7 +14,6 @@ export default function Cohort() {
   const [chat, setChat] = useState<{ dir: "out" | "in"; text: string }[]>([]);
   const [msg, setMsg] = useState("");
   const [driving, setDriving] = useState(false);
-  const opKey = () => localStorage.getItem("d2d_op_key") ?? "";
 
   const reloadJourney = () => { if (openId) api.journey(openId).then(setJourney).catch(() => setJourney(null)); };
   useEffect(() => { api.cohort().then(setRows).catch(() => setRows([])); }, []);
@@ -26,8 +25,8 @@ export default function Cohort() {
   };
   const drive = async () => {
     if (!openId || !msg.trim() || driving) return;
-    let key = opKey();
-    if (!key) { key = prompt("Operator key (set once, stored in this browser):") ?? ""; if (!key) return; localStorage.setItem("d2d_op_key", key); }
+    const key = opKey();
+    if (!key) { setChat((c) => [...c, { dir: "in", text: "⚠︎ No operator key set — add it at the bottom of the sidebar." }]); return; }
     const out = msg.trim(); setMsg(""); setChat((c) => [...c, { dir: "out", text: out }]); setDriving(true);
     try {
       const r = await api.advance(openId, out, key);

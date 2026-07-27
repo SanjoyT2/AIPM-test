@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from "react-router-dom";
+import { OperatorKey } from "./components";
 import AgentDetail from "./views/AgentDetail";
 import Cohort from "./views/Cohort";
 import Costs from "./views/Costs";
@@ -9,6 +10,7 @@ import Knowledge from "./views/Knowledge";
 import LearnerDetail from "./views/LearnerDetail";
 import Learners from "./views/Learners";
 import Overview from "./views/Overview";
+import Signups from "./views/Signups";
 import Studio from "./views/Studio";
 import TransactionDetail from "./views/TransactionDetail";
 import Transactions from "./views/Transactions";
@@ -28,6 +30,7 @@ export default function App() {
           <NavLink to="/" end>Overview</NavLink>
           <NavLink to="/cohort">Cohort</NavLink>
           <NavLink to="/courses">Courses</NavLink>
+          <NavLink to="/signups">Signups</NavLink>
           <NavLink to="/learners">Learners</NavLink>
           <NavLink to="/studio">Agent Studio</NavLink>
           <NavLink to="/knowledge">Knowledge</NavLink>
@@ -36,12 +39,14 @@ export default function App() {
           <NavLink to="/costs">Cost train</NavLink>
           <NavLink to="/frameworks">Frameworks</NavLink>
         </nav>
+        <OperatorKey />
       </aside>
       <main className="main">
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/cohort" element={<Cohort />} />
           <Route path="/courses" element={<Courses />} />
+          <Route path="/signups" element={<Signups />} />
           <Route path="/learners" element={<Learners />} />
           <Route path="/learners/:id" element={<LearnerDetail />} />
           <Route path="/studio" element={<Studio />} />
