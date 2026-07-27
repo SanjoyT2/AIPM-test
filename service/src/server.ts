@@ -62,10 +62,10 @@ async function main() {
   if (ledger.storage === "memory") {
     console.warn(
       "[ledger] DATABASE_URL is not set — running IN-MEMORY. Transactions are lost on restart/redeploy. " +
-      "Set DATABASE_URL to a Postgres connection string to persist.",
+      "Set DATABASE_URL to a MongoDB connection string (mongodb+srv://...) to persist.",
     );
   } else {
-    console.info("[ledger] Postgres connected — transactions are durable.");
+    console.info("[ledger] MongoDB connected — transactions are durable.");
   }
   if (gateway.stubMode) {
     console.warn(

@@ -1,30 +1,14 @@
 /**
  * Learner signups + WhatsApp OTP verification (public landing-page funnel).
+ * MongoDB implementation.
  *
  * Flow:
  *   POST /api/signup        {name?, phone, email} -> create pending learner, send 6-digit OTP to WhatsApp
  *   POST /api/signup/verify {phone, otp}          -> verify -> learner becomes 'verified'
- *
- * The OTP is stored only as a salted SHA-256 hash with a short expiry; the plain
- * code is never persisted. In stub mode (no WhatsApp token) the code is returned
- * in the response so the flow is testable without sending a real message.
- *
- * This is also how a learner is onboarded: a verified signup IS the learner record.
  */
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
-import pg from "pg";
+import type { Db, Collection } from "mongodb";
 import type { WaClient } from "./wa-client.js";
-
-const DDL = `
-CREATE TABLE IF NOT EXISTS learners (
-  learner_id  TEXT PRIMARY KEY,
-  doc         JSONB NOT NULL,
-  ts          TIMESTAMPTZ NOT NULL,
-  phone       TEXT GENERATED ALWAYS AS (doc->>'phone') STORED,
-  status      TEXT GENERATED ALWAYS AS (doc->>'status') STORED
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_learner_phone ON learners (phone);
-`;
 
 export interface Learner {
   learner_id: string;
@@ -34,7 +18,6 @@ export interface Learner {
   status: "pending" | "verified";
   created_at: string;
   verified_at?: string;
-  // OTP state (never returned to clients)
   otp_hash?: string;
   otp_expires?: number;
   otp_sent_at?: number;
@@ -48,34 +31,45 @@ export function normalizePhone(raw: string): string | null {
   const digits = (raw || "").replace(/\D/g, "");
   if (digits.length === 10) return "91" + digits;
   if (digits.length === 12 && digits.startsWith("91")) return digits;
-  if (digits.length >= 11 && digits.length <= 15) return digits; // other country codes
+  if (digits.length >= 11 && digits.length <= 15) return digits;
   return null;
 }
 const validEmail = (e: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || "");
 const hashOtp = (phone: string, otp: string) => createHash("sha256").update(`${phone}:${otp}`).digest("hex");
 
 export class Signups {
-  private pool: pg.Pool | null = null;
-  private mem = new Map<string, Learner>();
+  private col: Collection | null = null;
+  private mem = new Map<string, Learner>(); // keyed by phone
 
   constructor(private wa: WaClient) {}
 
-  async init(pool: pg.Pool | null): Promise<void> {
-    this.pool = pool;
-    if (pool) await pool.query(DDL);
+  async init(db: Db | null): Promise<void> {
+    if (!db) return;
+    this.col = db.collection("learners");
+    await this.col.createIndex({ phone: 1 }, { unique: true });
+    await this.col.createIndex({ status: 1 });
   }
 
   private async get(phone: string): Promise<Learner | null> {
-    if (this.pool) return (await this.pool.query("SELECT doc FROM learners WHERE phone=$1", [phone])).rows[0]?.doc ?? null;
+    if (this.col) {
+      const d = await this.col.findOne({ phone });
+      if (!d) return null;
+      const { _id, ...l } = d as any;
+      return l as Learner;
+    }
     return this.mem.get(phone) ?? null;
   }
+
   private async put(l: Learner): Promise<void> {
-    if (this.pool) {
-      await this.pool.query(
-        `INSERT INTO learners (learner_id, doc, ts) VALUES ($1,$2,$3)
-         ON CONFLICT (learner_id) DO UPDATE SET doc=EXCLUDED.doc, ts=EXCLUDED.ts`,
-        [l.learner_id, JSON.stringify(l), l.created_at]);
-    } else this.mem.set(l.phone, l);
+    if (this.col) {
+      await this.col.replaceOne(
+        { _id: l.learner_id as any },
+        { _id: l.learner_id as any, ...l },
+        { upsert: true },
+      );
+    } else {
+      this.mem.set(l.phone, l);
+    }
   }
 
   /** Public view — never leaks OTP fields. */
@@ -106,7 +100,6 @@ export class Signups {
 
     const body = `Your Degree2Destiny verification code is ${otp}. It expires in 10 minutes.`;
     const res = await this.wa.sendText(phone, body);
-    // In stub mode (no WhatsApp key) surface the code so the flow is testable.
     return { ok: true, sent: res.stub ? "stub" : "whatsapp", ...(res.stub ? { dev_otp: otp } : {}) };
   }
 
@@ -127,12 +120,15 @@ export class Signups {
   }
 
   async count(): Promise<{ verified: number; pending: number }> {
-    if (this.pool) {
-      const r = await this.pool.query("SELECT status, COUNT(*)::int n FROM learners GROUP BY status");
-      const m: Record<string, number> = {}; for (const row of r.rows) m[row.status] = row.n;
-      return { verified: m.verified ?? 0, pending: m.pending ?? 0 };
+    if (this.col) {
+      const [v, p] = await Promise.all([
+        this.col.countDocuments({ status: "verified" }),
+        this.col.countDocuments({ status: "pending" }),
+      ]);
+      return { verified: v, pending: p };
     }
-    let v = 0, p = 0; for (const l of this.mem.values()) l.status === "verified" ? v++ : p++;
+    let v = 0, p = 0;
+    for (const l of this.mem.values()) l.status === "verified" ? v++ : p++;
     return { verified: v, pending: p };
   }
 }

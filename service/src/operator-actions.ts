@@ -1,87 +1,65 @@
 /**
- * Operator actions store (task #5) — the human decisions that make the Cockpit
- * action-oriented, not just readable. Append-only and auditable, like everything
- * else: who decided what, when, and why.
- *
- * Two decision types in Phase 1:
- *  - integrity: clear | uphold an async-vs-sync mismatch flag for a competency.
- *    A `clear` feeds back into the measurement engine (removes the composite
- *    penalty for that competency); an `uphold` keeps it.
- *  - escalation: resolve an escalated agent transaction (acknowledge | override).
- *
- * These are NOT agent transactions — a human acted, so forcing them into the
- * agent-transaction schema (evidence/critique/cost) would be dishonest. They get
- * their own record, cross-linked by target id.
+ * Operator Decision Log — MongoDB implementation.
+ * Append-only store for integrity clears and escalation resolutions.
  */
 import { randomUUID } from "node:crypto";
-import pg from "pg";
-import type { EvidenceEvent } from "./types.js";
-
-const DDL = `
-CREATE TABLE IF NOT EXISTS operator_actions (
-  action_id  TEXT PRIMARY KEY,
-  doc        JSONB NOT NULL,
-  ts         TIMESTAMPTZ NOT NULL,
-  type       TEXT GENERATED ALWAYS AS (doc->>'type') STORED,
-  target_id  TEXT GENERATED ALWAYS AS (doc->>'target_id') STORED
-);
-CREATE INDEX IF NOT EXISTS idx_oa_target ON operator_actions (target_id);
-CREATE INDEX IF NOT EXISTS idx_oa_type   ON operator_actions (type, ts DESC);
-`;
+import type { Db, Collection } from "mongodb";
 
 export interface OperatorAction {
   action_id: string;
-  ts: string;
   type: "integrity" | "escalation";
-  target_id: string;                 // `${learner}:${competency}` for integrity, transaction_id for escalation
+  target_id: string;
   learner_id?: string;
   competency_id?: string;
-  decision: string;                  // cleared | upheld | acknowledged | overridden
+  decision: string;
   operator: string;
   note?: string;
+  ts: string;
 }
 
 export class OperatorActionStore {
-  private pool: pg.Pool | null = null;
+  private col: Collection | null = null;
   private memory: OperatorAction[] = [];
 
-  async init(pool: pg.Pool | null): Promise<void> {
-    this.pool = pool;
-    if (pool) await pool.query(DDL);
+  async init(db: Db | null): Promise<void> {
+    if (!db) return;
+    this.col = db.collection("operator_actions");
+    await this.col.createIndex({ target_id: 1 });
+    await this.col.createIndex({ type: 1, ts: -1 });
   }
 
   async record(a: Omit<OperatorAction, "action_id" | "ts">): Promise<OperatorAction> {
-    const full: OperatorAction = { ...a, action_id: `oa-${randomUUID()}`, ts: new Date().toISOString() };
-    if (this.pool) {
-      await this.pool.query("INSERT INTO operator_actions (action_id, doc, ts) VALUES ($1, $2, $3)",
-        [full.action_id, JSON.stringify(full), full.ts]);
+    const action: OperatorAction = { ...a, action_id: `oa-${randomUUID()}`, ts: new Date().toISOString() };
+    if (this.col) {
+      await this.col.insertOne({ _id: action.action_id as any, ...action });
     } else {
-      this.memory.push(full);
+      this.memory.push(action);
     }
-    return full;
+    return action;
   }
 
   async all(): Promise<OperatorAction[]> {
-    if (this.pool) {
-      const r = await this.pool.query("SELECT doc FROM operator_actions ORDER BY ts DESC");
-      return r.rows.map((x) => x.doc);
+    if (this.col) {
+      const docs = await this.col.find({}).sort({ ts: -1 }).toArray();
+      return docs.map(({ _id, ...a }) => a as OperatorAction);
     }
     return [...this.memory].sort((a, b) => b.ts.localeCompare(a.ts));
   }
 
-  /** Latest decision per target — later actions supersede earlier ones. */
-  async latestByTarget(): Promise<Map<string, OperatorAction>> {
-    const all = await this.all(); // newest first
-    const m = new Map<string, OperatorAction>();
-    for (const a of all) if (!m.has(a.target_id)) m.set(a.target_id, a);
-    return m;
+  /** Latest decision per target — later supersedes earlier. */
+  private async latestByTarget(): Promise<Map<string, OperatorAction>> {
+    const all = await this.all();
+    const map = new Map<string, OperatorAction>();
+    // all() returns newest-first, so first write wins per target
+    for (const a of all) if (!map.has(a.target_id)) map.set(a.target_id, a);
+    return map;
   }
 
-  /** Competencies a human has CLEARED for a learner — fed to the measurement engine. */
+  /** Set of competency IDs that a human has cleared for a learner. */
   async clearedIntegrityFor(learnerId: string): Promise<Set<string>> {
-    const latest = await this.latestByTarget();
+    const map = await this.latestByTarget();
     const cleared = new Set<string>();
-    for (const a of latest.values()) {
+    for (const a of map.values()) {
       if (a.type === "integrity" && a.learner_id === learnerId && a.decision === "cleared" && a.competency_id) {
         cleared.add(a.competency_id);
       }
@@ -89,16 +67,13 @@ export class OperatorActionStore {
     return cleared;
   }
 
-  /** transaction_ids that have been resolved, with the decision. */
+  /** Map of transaction_id → action for resolved escalations. */
   async resolvedEscalations(): Promise<Map<string, OperatorAction>> {
-    const latest = await this.latestByTarget();
-    const m = new Map<string, OperatorAction>();
-    for (const a of latest.values()) if (a.type === "escalation") m.set(a.target_id, a);
-    return m;
+    const map = await this.latestByTarget();
+    const resolved = new Map<string, OperatorAction>();
+    for (const [target, a] of map.entries()) {
+      if (a.type === "escalation") resolved.set(target, a);
+    }
+    return resolved;
   }
-}
-
-/** Guard: a competency can only be cleared if the learner actually has a flag for it. */
-export function learnerHasEvidence(evs: EvidenceEvent[], competency: string): boolean {
-  return evs.some((e) => e.competency_id === competency);
 }
