@@ -27,14 +27,37 @@ export const settings = {
   },
 
   /** WhatsApp via 11za. */
-  /** Operator/coach key gating authenticated operator actions (e.g. drive a journey). */
+  /**
+   * Machine key for operator actions — scripts, curl, CI. Human operators sign in
+   * with an account instead (see auth.ts); this stays as the non-interactive path.
+   */
   operatorKey: process.env.OPERATOR_KEY ?? "",
+
+  /**
+   * First-admin bootstrap. Only applied when the users collection is completely
+   * empty, so it cannot be used to inject an admin into a running system.
+   */
+  bootstrapAdmin: {
+    email: process.env.BOOTSTRAP_ADMIN_EMAIL ?? "",
+    password: process.env.BOOTSTRAP_ADMIN_PASSWORD ?? "",
+  },
+
+  /** Session cookies are Secure unless we're plainly on http locally. */
+  cookieSecure: (process.env.COOKIE_SECURE ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
 
   wa: {
     apiBase: process.env.WA_API_BASE ?? "https://api.11za.in",
     apiToken: process.env.WA_API_TOKEN ?? "",          // 11za authToken (secret) — empty => outbound stub mode
     originWebsite: process.env.WA_ORIGIN_WEBSITE ?? "", // 11za "originWebsite" param
     webhookSecret: process.env.WA_WEBHOOK_SECRET ?? "",
+    /**
+     * Approved template used to deliver signup OTPs. WhatsApp only permits free-form
+     * text inside the 24h window the *learner* opens, so a first-contact OTP must go
+     * out as a template. Empty => fall back to free-form (works only in stub mode or
+     * if the window happens to be open).
+     */
+    otpTemplate: process.env.WA_OTP_TEMPLATE ?? "",
+    otpTemplateLang: process.env.WA_OTP_TEMPLATE_LANG ?? "en",
   },
 
   /** The editable frameworks (YAML) + their JSON Schemas. */

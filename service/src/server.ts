@@ -8,9 +8,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import fastifyCookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { loadAgents } from "./agents.js";
+import { Auth, isRole, PERMISSIONS, roleHas, ROLES, SESSION_COOKIE, type Permission, type Role, type SessionUser } from "./auth.js";
 import { loadFrameworks } from "./config-loader.js";
 import { LmsStore } from "./content-store.js";
 import { DailyLoop } from "./daily-loop.js";
@@ -41,29 +43,10 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
-/**
- * Operator gate for anything that writes curriculum or learner records. Returns true
- * when the request was refused, so callers read as `if (denyNonOperator(...)) return;`.
- *
- * Fails closed in production: an unset OPERATOR_KEY means refuse, never wave through.
- * Outside production it warns and allows, so local dev and the seed scripts still work.
- */
-function denyNonOperator(req: any, reply: any): boolean {
-  if (!settings.operatorKey) {
-    if (settings.env === "production") {
-      req.log.error(`${req.method} ${req.url} requires an operator key but OPERATOR_KEY is unset — refusing (fail closed)`);
-      reply.code(503).send({ error: "operator actions not configured (set OPERATOR_KEY)" });
-      return true;
-    }
-    req.log.warn(`OPERATOR_KEY unset — ${req.method} ${req.url} is UNAUTHENTICATED (allowed in non-production only)`);
-    return false;
-  }
-  if (!timingSafeEqualStr((req.headers["x-operator-key"] ?? "") as string, settings.operatorKey)) {
-    reply.code(401).send({ error: "bad operator key" });
-    return true;
-  }
-  return false;
-}
+const presentedOperatorKey = (req: any) => ((req.headers["x-operator-key"] ?? "") as string);
+/** The non-interactive path: scripts, CI and curl authenticate with the shared key. */
+const operatorKeyValid = (req: any) =>
+  !!settings.operatorKey && timingSafeEqualStr(presentedOperatorKey(req), settings.operatorKey);
 
 async function main() {
   // 1. Frameworks (throws on invalid config — refuse to boot)
@@ -123,6 +106,8 @@ async function main() {
   const lms = new LmsStore();
   await lms.init(ledger.getPool());
   const learning = new LearningEngine(lms, evidence, gateway, dailyLoop, frameworks.versions.competency_framework);
+  const auth = new Auth();
+  await auth.init(ledger.getPool());
 
   // Merged guardrail-rule catalog: built-in config rules (now plain-English,
   // LLM-enforced) + user-created custom rules. Used to validate sets + for the UI.
@@ -136,6 +121,191 @@ async function main() {
   dailyLoop.startSilenceSweep();
 
   const app = Fastify({ logger: true });
+  await app.register(fastifyCookie);
+
+  await auth.bootstrapAdmin(settings.bootstrapAdmin.email, settings.bootstrapAdmin.password, {
+    info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m),
+  });
+
+  /* ------------------------------------------------------------------ access */
+
+  const sessionUser = (req: any): Promise<SessionUser | null> => auth.resolve(req.cookies?.[SESSION_COOKIE]);
+
+  /**
+   * The single gate. Returns true when the request was refused, so handlers read as
+   * `if (await deny(req, reply, "authorCurriculum")) return;`.
+   *
+   * Two ways in: the shared operator key (scripts, CI) or a signed-in account whose
+   * role carries the permission. The only bypass is a genuinely unconfigured local
+   * dev box — no operator key and not production — which keeps `npm run dev` usable.
+   */
+  async function deny(req: any, reply: any, perm: Permission): Promise<boolean> {
+    if (operatorKeyValid(req)) return false;
+    if (presentedOperatorKey(req)) { reply.code(401).send({ error: "bad operator key" }); return true; }
+
+    const user = await sessionUser(req);
+    if (user) {
+      if (roleHas(user.role, perm)) return false;
+      reply.code(403).send({ error: `role "${user.role}" cannot ${perm}`, need: PERMISSIONS[perm] });
+      return true;
+    }
+    if (settings.env !== "production" && !settings.operatorKey) {
+      req.log.warn(`no auth configured — ${req.method} ${req.url} allowed UNAUTHENTICATED (non-production only)`);
+      return false;
+    }
+    reply.code(401).send({ error: "sign in required" });
+    return true;
+  }
+
+  /* -------------------------------------------------------------------- auth */
+
+  app.post("/api/auth/login", async (req, reply) => {
+    const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
+    if (!email || !password) return reply.code(400).send({ error: "Email and password are required." });
+    const r = await auth.login(email, password);
+    if (!r.ok) {
+      req.log.warn({ email }, "failed login");
+      return reply.code(401).send({ error: r.error });
+    }
+    reply.setCookie(SESSION_COOKIE, r.token, {
+      httpOnly: true,          // not readable by scripts, so XSS can't lift the session
+      sameSite: "lax",         // survives the top-level navigation from the landing page
+      secure: settings.cookieSecure,
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+    return { user: r.user };
+  });
+
+  app.post("/api/auth/logout", async (req, reply) => {
+    await auth.revoke(req.cookies?.[SESSION_COOKIE]);
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { ok: true };
+  });
+
+  /** Who am I — the console calls this on load to decide login vs console. */
+  app.get("/api/auth/me", async (req, reply) => {
+    const user = await sessionUser(req);
+    if (!user) return reply.code(401).send({ error: "not signed in" });
+    return { user, permissions: Object.fromEntries(Object.keys(PERMISSIONS).map((p) => [p, roleHas(user.role, p as Permission)])) };
+  });
+
+  /** Change your own password. Also clears the must-change nag. */
+  app.post("/api/auth/password", async (req, reply) => {
+    const user = await sessionUser(req);
+    if (!user) return reply.code(401).send({ error: "sign in required" });
+    const { current, next } = (req.body ?? {}) as { current?: string; next?: string };
+    if (!current || !next) return reply.code(400).send({ error: "Current and new password are required." });
+    // Re-authenticate: a stolen session shouldn't be able to lock the owner out.
+    const check = await auth.login(user.email, current);
+    if (!check.ok) return reply.code(401).send({ error: "Current password is wrong." });
+    const r = await auth.setPassword(user.user_id, next, { mustChange: false });
+    if (!r.ok) return reply.code(400).send({ error: r.error });
+    return { ok: true };
+  });
+
+  /** Shared by the operator route and the learner's own /api/me/journey. */
+  async function learnerJourney(id: string) {
+    const enr = await lms.activeEnrollment(id);
+    if (!enr) return { learner_id: id, enrolled: false };
+    const p = await lms.getProgress(id, enr.course_id);
+    const journey = await lms.courseJourney(enr.course_id);
+    const next = await lms.nextStep(id, enr.course_id);
+    const modules = await lms.moduleProgress(id, enr.course_id);
+    const project = await lms.getProject(id);
+    const course = await lms.getCourse(enr.course_id);
+    return {
+      learner_id: id, enrolled: true, course_id: enr.course_id, course_title: course?.title,
+      completed: p.completed.length, total: journey.length, awaiting_lesson_id: p.awaiting_lesson_id,
+      next_lesson: next ? { lesson_id: next.lesson_id, title: next.title, type: next.type, module: next.module_title } : null,
+      project,
+      modules: modules.map((m) => ({ title: m.module.title, done: m.done, total: m.total, complete: m.complete, milestone: m.module.milestone })),
+    };
+  }
+
+  /* ------------------------------------------------- the signed-in learner's own view
+
+     Learners never hit /api/learners/:id — they'd be one edited URL away from each
+     other's records. These read the id off the session instead, so there is no
+     learner-supplied identifier to tamper with. */
+
+  /** Resolves the learner this session is allowed to see, or 401/403s. */
+  async function meAsLearner(req: any, reply: any): Promise<string | null> {
+    const user = await sessionUser(req);
+    if (!user) { reply.code(401).send({ error: "sign in required" }); return null; }
+    if (user.role !== "learner" || !user.learner_id) {
+      reply.code(403).send({ error: "this endpoint is for learner accounts" });
+      return null;
+    }
+    return user.learner_id;
+  }
+
+  app.get("/api/me/journey", async (req, reply) => {
+    const id = await meAsLearner(req, reply);
+    if (!id) return;
+    return learnerJourney(id);
+  });
+
+  app.get("/api/me/measurement", async (req, reply) => {
+    const id = await meAsLearner(req, reply);
+    if (!id) return;
+    const evs = await evidence.forLearner(id);
+    // A learner with no evidence yet is a normal early state, not an error.
+    if (!evs.length) return { learner_id: id, evidence_count: 0, mastery: [], composite: null };
+    const cleared = await operatorActions.clearedIntegrityFor(id);
+    return measurement.compute(id, evs, { asOf: Date.now(), clearedIntegrity: cleared });
+  });
+
+  app.post("/api/me/checkin", async (req, reply) => {
+    const id = await meAsLearner(req, reply);
+    if (!id) return;
+    return learning.checkIn(id, "learner_requested");
+  });
+
+  /* --------------------------------------------------------- user management */
+
+  app.get("/api/users", async (req, reply) => {
+    if (await deny(req, reply, "manageUsers")) return;
+    return auth.list();
+  });
+
+  app.post("/api/users", async (req, reply) => {
+    if (await deny(req, reply, "manageUsers")) return;
+    const b = (req.body ?? {}) as { email?: string; password?: string; role?: string; name?: string; learner_id?: string };
+    if (!b.email || !b.password) return reply.code(400).send({ error: "Email and password are required." });
+    if (!isRole(b.role)) return reply.code(400).send({ error: `role must be one of: ${ROLES.join(", ")}` });
+    const r = await auth.createUser({
+      email: b.email, password: b.password, role: b.role as Role, name: b.name, learner_id: b.learner_id,
+    });
+    return r.ok ? reply.code(201).send(r.user) : reply.code(400).send({ error: r.error });
+  });
+
+  app.post("/api/users/:id/disabled", async (req, reply) => {
+    if (await deny(req, reply, "manageUsers")) return;
+    const { id } = req.params as { id: string };
+    const { disabled } = (req.body ?? {}) as { disabled?: boolean };
+    const me = await sessionUser(req);
+    // Locking yourself out of the only admin account is unrecoverable from the UI.
+    if (me?.user_id === id && disabled) return reply.code(400).send({ error: "You cannot disable your own account." });
+    return (await auth.setDisabled(id, !!disabled)) ? { ok: true } : reply.code(404).send({ error: "no such account" });
+  });
+
+  app.post("/api/users/:id/password", async (req, reply) => {
+    if (await deny(req, reply, "manageUsers")) return;
+    const { id } = req.params as { id: string };
+    const { password } = (req.body ?? {}) as { password?: string };
+    if (!password) return reply.code(400).send({ error: "password is required" });
+    const r = await auth.setPassword(id, password, { mustChange: true });
+    return r.ok ? { ok: true } : reply.code(400).send({ error: r.error });
+  });
+
+  app.delete("/api/users/:id", async (req, reply) => {
+    if (await deny(req, reply, "manageUsers")) return;
+    const { id } = req.params as { id: string };
+    const me = await sessionUser(req);
+    if (me?.user_id === id) return reply.code(400).send({ error: "You cannot delete your own account." });
+    return (await auth.deleteUser(id)) ? { ok: true } : reply.code(404).send({ error: "no such account" });
+  });
 
   // ---- Health & meta ----
   app.get("/api/health", async () => ({
@@ -164,7 +334,7 @@ async function main() {
   // The operator's roster of real registrants. Gated: this is learner PII (phone, email),
   // unlike /api/signup/stats which is only a count.
   app.get("/api/signups", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "viewSignups")) return;
     const { limit } = (req.query ?? {}) as { limit?: string };
     return signups.list(Math.min(Number(limit) || 500, 1000));
   });
@@ -172,7 +342,7 @@ async function main() {
   // ---- LMS: courses -> modules -> lessons, enrollment, journey (the CMS) ----
   app.get("/api/courses", async () => lms.listCourses());
   app.post("/api/courses", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "authorCurriculum")) return;
     const { title, outcome } = (req.body ?? {}) as { title?: string; outcome?: string };
     if (!title) return reply.code(400).send({ error: "title is required" });
     return reply.code(201).send(await lms.createCourse(title, outcome ?? ""));
@@ -186,7 +356,7 @@ async function main() {
     return { ...course, modules: withLessons };
   });
   app.post("/api/courses/:id/publish", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "authorCurriculum")) return;
     const { status } = (req.body ?? {}) as { status?: string };
     // Publishing is reversible — an operator can pull a course back to draft.
     const next = status === "draft" ? "draft" : "published";
@@ -194,14 +364,14 @@ async function main() {
     return { ok: true, status: next };
   });
   app.post("/api/courses/:id/modules", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "authorCurriculum")) return;
     const { id } = req.params as { id: string };
     const { title, order, competencies, milestone, human_spine } = (req.body ?? {}) as { title?: string; order?: number; competencies?: string[]; milestone?: { title: string; definition_of_done: string }; human_spine?: string };
     if (!title) return reply.code(400).send({ error: "title is required" });
     return reply.code(201).send(await lms.addModule(id, title, order ?? 999, competencies ?? [], { milestone, human_spine }));
   });
   app.post("/api/modules/:id/lessons", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "authorCurriculum")) return;
     const { id } = req.params as { id: string };
     const b = (req.body ?? {}) as any;
     if (!b.type || !b.competency_id || !b.title || !b.objective) return reply.code(400).send({ error: "type, competency_id, title, objective are required" });
@@ -212,45 +382,36 @@ async function main() {
     }));
   });
   app.put("/api/lessons/:id", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "authorCurriculum")) return;
     const u = await lms.updateLesson((req.params as { id: string }).id, (req.body ?? {}) as any);
     return u ? u : reply.code(404).send({ error: "not found" });
   });
   app.delete("/api/lessons/:id", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "authorCurriculum")) return;
     await lms.deleteLesson((req.params as { id: string }).id);
     return { ok: true };
   });
 
   // Enrollment + a learner's journey progress.
   app.post("/api/enroll", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "manageLearners")) return;
     const { learner, course } = (req.body ?? {}) as { learner?: string; course?: string };
     if (!learner || !course) return reply.code(400).send({ error: "learner and course are required" });
     return reply.code(201).send(await lms.enroll(learner, course));
   });
-  app.get("/api/learners/:id/journey", async (req) => {
-    const { id } = req.params as { id: string };
-    const enr = await lms.activeEnrollment(id);
-    if (!enr) return { learner_id: id, enrolled: false };
-    const p = await lms.getProgress(id, enr.course_id);
-    const journey = await lms.courseJourney(enr.course_id);
-    const next = await lms.nextStep(id, enr.course_id);
-    const modules = await lms.moduleProgress(id, enr.course_id);
-    const project = await lms.getProject(id);
-    return {
-      learner_id: id, enrolled: true, course_id: enr.course_id,
-      completed: p.completed.length, total: journey.length, awaiting_lesson_id: p.awaiting_lesson_id,
-      next_lesson: next ? { lesson_id: next.lesson_id, title: next.title, type: next.type, module: next.module_title } : null,
-      project,
-      modules: modules.map((m) => ({ title: m.module.title, done: m.done, total: m.total, complete: m.complete, milestone: m.module.milestone })),
-    };
+  app.get("/api/learners/:id/journey", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
+    return learnerJourney((req.params as { id: string }).id);
   });
 
   // The learner's one solution (project).
-  app.get("/api/learners/:id/project", async (req) => (await lms.getProject((req.params as { id: string }).id)) ?? { learner_id: (req.params as { id: string }).id, project: null });
+  app.get("/api/learners/:id/project", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
+    const { id } = req.params as { id: string };
+    return (await lms.getProject(id)) ?? { learner_id: id, project: null };
+  });
   app.post("/api/learners/:id/project", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "manageLearners")) return;
     const { id } = req.params as { id: string };
     const b = (req.body ?? {}) as { title?: string; stakeholder?: string; problem?: string; success_metric?: string; status?: string };
     if (!b.title || !b.stakeholder) return reply.code(400).send({ error: "title and stakeholder are required" });
@@ -258,7 +419,8 @@ async function main() {
   });
 
   // Coach (AI Program Manager) weekly check-in.
-  app.post("/api/learners/:id/checkin", async (req) => {
+  app.post("/api/learners/:id/checkin", async (req, reply) => {
+    if (await deny(req, reply, "manageLearners")) return;
     const { id } = req.params as { id: string };
     const { trigger } = (req.body ?? {}) as { trigger?: string };
     return learning.checkIn(id, trigger);
@@ -268,7 +430,7 @@ async function main() {
   // journey from the console before 11za is connected. Drives real LLM spend, so it
   // requires the operator key and fails closed in production if that key is unset.
   app.post("/api/learners/:id/advance", async (req, reply) => {
-    if (denyNonOperator(req, reply)) return;
+    if (await deny(req, reply, "manageLearners")) return;
     const { id } = req.params as { id: string };
     const { text } = (req.body ?? {}) as { text?: string };
     if (!text) return reply.code(400).send({ error: "text is required" });
@@ -276,7 +438,8 @@ async function main() {
   });
 
   // Coach cohort view: every enrolled learner with progress + status.
-  app.get("/api/cohort", async () => {
+  app.get("/api/cohort", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const enrs = await lms.listEnrollments();
     const seen = new Set<string>();
     const rows = [];
@@ -310,6 +473,7 @@ async function main() {
 
   // ---- Transaction ledger (Req 1-4 all live on this record) ----
   app.post("/api/transactions", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const body = req.body as AgentTransaction;
     if (!validateTx(body)) {
       return reply.code(422).send({ error: "schema validation failed", details: validateTx.errors });
@@ -322,12 +486,14 @@ async function main() {
     return reply.code(201).send({ transaction_id: body.transaction_id });
   });
 
-  app.get("/api/transactions", async (req) => {
+  app.get("/api/transactions", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const q = req.query as { agent?: string; subject?: string; status?: string; limit?: string };
     return ledger.list({ agent: q.agent, subject: q.subject, status: q.status, limit: q.limit ? Number(q.limit) : undefined });
   });
 
   app.get("/api/transactions/:id", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const { id } = req.params as { id: string };
     const tx = await ledger.get(id);
     if (!tx) return reply.code(404).send({ error: "not found" });
@@ -336,6 +502,7 @@ async function main() {
 
   // ---- Cost train rollups (Req 3 / dashboard) ----
   app.get("/api/costs/rollup", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const { by = "agent" } = req.query as { by?: string };
     if (!["agent", "subject", "plan", "status"].includes(by)) {
       return reply.code(400).send({ error: "by must be one of agent|subject|plan|status" });
@@ -345,6 +512,7 @@ async function main() {
 
   // ---- Evidence events (Learner Record Store) ----
   app.post("/api/evidence", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const body = req.body as EvidenceEvent;
     if (!validateEv(body)) {
       return reply.code(422).send({ error: "schema validation failed", details: validateEv.errors });
@@ -353,7 +521,8 @@ async function main() {
     return reply.code(201).send({ event_id: body.event_id });
   });
 
-  app.get("/api/evidence", async (req) => {
+  app.get("/api/evidence", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const { learner } = req.query as { learner?: string };
     return learner ? evidence.forLearner(learner) : evidence.all();
   });
@@ -364,7 +533,8 @@ async function main() {
   const asOfFrom = (q: Record<string, string | undefined>) =>
     q.asOf ? new Date(q.asOf).getTime() : Date.now();
 
-  app.get("/api/learners", async (req) => {
+  app.get("/api/learners", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const q = req.query as Record<string, string | undefined>;
     const asOf = asOfFrom(q);
     const ids = await evidence.learnerIds();
@@ -387,6 +557,7 @@ async function main() {
   });
 
   app.get("/api/learners/:id", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const { id } = req.params as { id: string };
     const q = req.query as Record<string, string | undefined>;
     const evs = await evidence.forLearner(id);
@@ -399,6 +570,7 @@ async function main() {
 
   // ---- Operator actions (task #5) — make the Cockpit act, not just read ----
   app.post("/api/learners/:id/integrity/:competency", async (req, reply) => {
+    if (await deny(req, reply, "assess")) return;
     const { id, competency } = req.params as { id: string; competency: string };
     const { decision, operator = "operator", note } = (req.body ?? {}) as { decision?: string; operator?: string; note?: string };
     if (decision !== "cleared" && decision !== "upheld") {
@@ -415,6 +587,7 @@ async function main() {
   });
 
   app.post("/api/transactions/:id/resolve", async (req, reply) => {
+    if (await deny(req, reply, "assess")) return;
     const { id } = req.params as { id: string };
     const { decision, operator = "operator", note } = (req.body ?? {}) as { decision?: string; operator?: string; note?: string };
     if (decision !== "acknowledged" && decision !== "overridden") {
@@ -426,12 +599,16 @@ async function main() {
     return reply.code(201).send(action);
   });
 
-  app.get("/api/actions", async () => operatorActions.all());
+  app.get("/api/actions", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
+    return operatorActions.all();
+  });
 
   // ================= Agent Studio =================
 
   // Agents list with per-agent config + attached resources + ledger stats.
-  app.get("/api/agents", async () => {
+  app.get("/api/agents", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const txs = await ledger.list({ limit: 500 });
     return Promise.all(Object.values(agents).map(async (a) => {
       const mine = txs.filter((t) => t.agent.name === a.name);
@@ -454,6 +631,7 @@ async function main() {
   });
 
   app.get("/api/agents/:name", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const { name } = req.params as { name: string };
     const a = agents[name];
     if (!a) return reply.code(404).send({ error: "unknown agent" });
@@ -474,18 +652,27 @@ async function main() {
 
   // Edit the prompt (versioned override wins over the file default at run time).
   app.put("/api/agents/:name/prompt", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { name } = req.params as { name: string };
     if (!agents[name]) return reply.code(404).send({ error: "unknown agent" });
     const { prompt, author = "operator" } = (req.body ?? {}) as { prompt?: string; author?: string };
     if (!prompt || !prompt.trim()) return reply.code(400).send({ error: "prompt is required" });
     return reply.code(201).send(await resources.savePrompt(name, prompt, author));
   });
-  app.get("/api/agents/:name/prompt/versions", async (req) => resources.promptVersions((req.params as { name: string }).name));
+  app.get("/api/agents/:name/prompt/versions", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
+    return resources.promptVersions((req.params as { name: string }).name);
+  });
   // Reset to the built-in file prompt (clears all overrides).
-  app.delete("/api/agents/:name/prompt", async (req) => { await resources.clearPrompts((req.params as { name: string }).name); return { ok: true }; });
+  app.delete("/api/agents/:name/prompt", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    await resources.clearPrompts((req.params as { name: string }).name);
+    return { ok: true };
+  });
 
   // Playground: run an agent as if messaging on a chosen learner's behalf. Never sends WhatsApp.
   app.post("/api/agents/:name/test", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { name } = req.params as { name: string };
     if (!agents[name]) return reply.code(404).send({ error: "unknown agent" });
     const { subject = "test-user", text } = (req.body ?? {}) as { subject?: string; text?: string };
@@ -495,7 +682,8 @@ async function main() {
   });
 
   // ---- RAG: knowledge bases (standalone, attachable) ----
-  app.get("/api/rag/kbs", async () => {
+  app.get("/api/rag/kbs", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const kbs = await resources.listKBs();
     return Promise.all(kbs.map(async (kb) => ({
       ...kb, doc_count: (await resources.listDocs(kb.kb_id)).length,
@@ -503,48 +691,68 @@ async function main() {
     })));
   });
   app.post("/api/rag/kbs", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { name, description } = (req.body ?? {}) as { name?: string; description?: string };
     if (!name) return reply.code(400).send({ error: "name is required" });
     return reply.code(201).send(await resources.createKB(name, description));
   });
   app.get("/api/rag/kbs/:id", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const { id } = req.params as { id: string };
     const kb = await resources.getKB(id);
     if (!kb) return reply.code(404).send({ error: "not found" });
     return { ...kb, documents: await resources.listDocs(id), attached_agents: await resources.agentsForResource("kb", id) };
   });
-  app.delete("/api/rag/kbs/:id", async (req) => { await resources.deleteKB((req.params as { id: string }).id); return { ok: true }; });
+  app.delete("/api/rag/kbs/:id", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    await resources.deleteKB((req.params as { id: string }).id);
+    return { ok: true };
+  });
   app.post("/api/rag/kbs/:id/docs", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { id } = req.params as { id: string };
     const { title, content } = (req.body ?? {}) as { title?: string; content?: string };
     if (!title || !content) return reply.code(400).send({ error: "title and content are required" });
     return reply.code(201).send(await resources.addDoc(id, title, content));
   });
-  app.delete("/api/rag/docs/:docId", async (req) => { await resources.deleteDoc((req.params as { docId: string }).docId); return { ok: true }; });
-  app.post("/api/rag/retrieve", async (req) => {
+  app.delete("/api/rag/docs/:docId", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    await resources.deleteDoc((req.params as { docId: string }).docId);
+    return { ok: true };
+  });
+  app.post("/api/rag/retrieve", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { agent, query } = (req.body ?? {}) as { agent?: string; query?: string };
     return resources.retrieve(agent ?? "", query ?? "", 5);
   });
 
   // ---- Guardrails: plain-English rules (LLM-enforced) + sets, both attachable ----
-  app.get("/api/guardrails/catalog", async () => {
+  app.get("/api/guardrails/catalog", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const rules = await ruleCatalog();
     return { rules, all_rule_ids: rules.map((r) => r.rule_id) };
   });
   // Create a NEW rule by typing a sentence — no code (answers "how do I create new").
   app.post("/api/guardrails/rules", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { name, description, severity = "block" } = (req.body ?? {}) as { name?: string; description?: string; severity?: string };
     if (!name || !description) return reply.code(400).send({ error: "name and description (the plain-English rule) are required" });
     if (!["block", "escalate", "warn"].includes(severity)) return reply.code(400).send({ error: "severity must be block|escalate|warn" });
     return reply.code(201).send(await resources.createRule(name, description, severity as "block" | "escalate" | "warn"));
   });
-  app.delete("/api/guardrails/rules/:id", async (req) => { await resources.deleteRule((req.params as { id: string }).id); return { ok: true }; });
+  app.delete("/api/guardrails/rules/:id", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    await resources.deleteRule((req.params as { id: string }).id);
+    return { ok: true };
+  });
 
-  app.get("/api/guardrails/sets", async () => {
+  app.get("/api/guardrails/sets", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
     const sets = await resources.listGuardrailSets();
     return Promise.all(sets.map(async (s) => ({ ...s, attached_agents: await resources.agentsForResource("guardrail", s.gr_id) })));
   });
   app.post("/api/guardrails/sets", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { name, rule_ids, description } = (req.body ?? {}) as { name?: string; rule_ids?: string[]; description?: string };
     if (!name || !Array.isArray(rule_ids) || !rule_ids.length) return reply.code(400).send({ error: "name and non-empty rule_ids are required" });
     const known = new Set((await ruleCatalog()).map((r) => r.rule_id));
@@ -552,10 +760,15 @@ async function main() {
     if (unknown.length) return reply.code(400).send({ error: `unknown rule ids: ${unknown.join(", ")}` });
     return reply.code(201).send(await resources.createGuardrailSet(name, rule_ids, description));
   });
-  app.delete("/api/guardrails/sets/:id", async (req) => { await resources.deleteGuardrailSet((req.params as { id: string }).id); return { ok: true }; });
+  app.delete("/api/guardrails/sets/:id", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    await resources.deleteGuardrailSet((req.params as { id: string }).id);
+    return { ok: true };
+  });
 
   // ---- Attach / detach a resource to an agent (many-to-many) ----
   app.post("/api/agents/:name/resources", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
     const { name } = req.params as { name: string };
     if (!agents[name]) return reply.code(404).send({ error: "unknown agent" });
     const { type, resource_id, action = "attach" } = (req.body ?? {}) as { type?: "kb" | "guardrail"; resource_id?: string; action?: "attach" | "detach" };
@@ -600,8 +813,20 @@ async function main() {
         return reply.code(503).send({ error: "webhook not configured" });
       }
       req.log.warn("WA_WEBHOOK_SECRET unset — webhook is UNAUTHENTICATED (allowed in non-production only)");
-    } else if (!timingSafeEqualStr((req.headers["x-webhook-secret"] ?? "") as string, settings.wa.webhookSecret)) {
-      return reply.code(401).send({ error: "bad webhook secret" });
+    } else {
+      /*
+       * Accept the secret as a header OR a query param. 11za's webhook config only
+       * takes a URL — there is no field for a custom header — so header-only auth
+       * would reject every real inbound message. The query-param form keeps the
+       * secret out of the request body but it does land in access logs, which is
+       * the tradeoff the platform forces.
+       */
+      const presented = ((req.headers["x-webhook-secret"] as string) ?? "")
+        || ((req.query as Record<string, string | undefined>)?.secret ?? "");
+      if (!timingSafeEqualStr(presented, settings.wa.webhookSecret)) {
+        req.log.warn("11za inbound rejected: bad or missing webhook secret");
+        return reply.code(401).send({ error: "bad webhook secret" });
+      }
     }
     // Accept the common shapes: {from,text} | {phone,message} | {sender,body}. Confirm exact 11za payload later.
     const b = (req.body ?? {}) as Record<string, string>;
