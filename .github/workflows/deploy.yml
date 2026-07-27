@@ -1,0 +1,160 @@
+name: Deploy to EC2
+
+# Build the image in CI (the t3.small has better things to do than run tsc), publish it
+# to GHCR, then SSH to the D2D box and swap the running container.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys race for the same box.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR rejects uppercase in image paths, and this repo is "SanjoyT2/AIPM-test".
+      - id: meta
+        name: Compute lowercase image tags
+        run: |
+          repo="${GITHUB_REPOSITORY,,}"
+          echo "image=ghcr.io/${repo}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest=ghcr.io/${repo}:latest" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.meta.outputs.latest }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # Built on the runner rather than heredoc'd over SSH so that values containing
+      # $, spaces or quotes survive verbatim. Secrets stay masked in the log.
+      - name: Render .env
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPERATOR_KEY: ${{ secrets.OPERATOR_KEY }}
+          WA_API_BASE: ${{ secrets.WA_API_BASE }}
+          WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
+          WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
+          WA_WEBHOOK_SECRET: ${{ secrets.WA_WEBHOOK_SECRET }}
+          MODEL_FAST: ${{ vars.MODEL_FAST }}
+          MODEL_DEEP: ${{ vars.MODEL_DEEP }}
+        run: |
+          umask 077
+          {
+            printf 'IMAGE=%s\n'             "$IMAGE"
+            printf 'NODE_ENV=production\n'
+            printf 'PORT=8000\n'
+            printf 'DATABASE_URL=%s\n'      "$DATABASE_URL"
+            printf 'OPENAI_API_KEY=%s\n'    "$OPENAI_API_KEY"
+            printf 'OPERATOR_KEY=%s\n'      "$OPERATOR_KEY"
+            printf 'WA_API_BASE=%s\n'       "${WA_API_BASE:-https://api.11za.in}"
+            printf 'WA_API_TOKEN=%s\n'      "$WA_API_TOKEN"
+            printf 'WA_ORIGIN_WEBSITE=%s\n' "$WA_ORIGIN_WEBSITE"
+            printf 'WA_WEBHOOK_SECRET=%s\n' "$WA_WEBHOOK_SECRET"
+            printf 'MODEL_FAST=%s\n'        "${MODEL_FAST:-gpt-4o-mini}"
+            printf 'MODEL_DEEP=%s\n'        "${MODEL_DEEP:-gpt-4o}"
+          } > env.prod
+
+      - name: Ship compose file and env
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml "ec2-user@${EC2_HOST}:/opt/d2d/docker-compose.prod.yml"
+          scp -i ~/.ssh/id_ed25519 env.prod                "ec2-user@${EC2_HOST}:/opt/d2d/.env"
+
+      # GITHUB_TOKEN is a valid GHCR credential for the life of this job, so the box can
+      # pull a private package without us storing a long-lived PAT on it. Piped over
+      # stdin rather than passed as an argument so it never appears in the process list.
+      - name: Log the box in to GHCR
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/id_ed25519 "ec2-user@${EC2_HOST}" \
+            "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
+      - name: Pull and restart
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "ec2-user@${EC2_HOST}" 'bash -euo pipefail -s' <<'REMOTE'
+            cd /opt/d2d
+            chmod 600 .env
+
+            # First deploy can land before cloud-init has finished installing Docker.
+            for i in $(seq 1 30); do
+              if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then break; fi
+              echo "waiting for docker (attempt $i)..."; sleep 10
+            done
+
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f >/dev/null 2>&1 || true
+
+            # The token dies with this job; don't leave it sitting in ~/.docker/config.json.
+            docker logout ghcr.io >/dev/null 2>&1 || true
+
+            docker compose -f docker-compose.prod.yml ps
+          REMOTE
+
+      - name: Wait for health
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 5 "http://${EC2_HOST}/api/health" > health.json; then
+              echo "healthy:"; cat health.json; exit 0
+            fi
+            echo "not healthy yet (attempt $i)..."; sleep 5
+          done
+          echo "::error::Service did not become healthy. Container logs:"
+          ssh -i ~/.ssh/id_ed25519 "ec2-user@${EC2_HOST}" \
+            'docker compose -f /opt/d2d/docker-compose.prod.yml logs --tail=100 api'
+          exit 1
