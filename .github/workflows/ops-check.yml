@@ -31,3 +31,8 @@ jobs:
               -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\",\"limit\":10,\"page\":1,\"search\":\"\"}" \
               | head -c 3000; echo
           done
+          echo "==== inbound webhook (current config, read-only) ===="
+          curl -sS -X POST "https://api.11za.in/apis/inboundwebhook/get" \
+            -H "Content-Type: application/json" \
+            -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\"}" \
+            | head -c 2000; echo
