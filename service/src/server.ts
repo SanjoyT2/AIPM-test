@@ -135,6 +135,10 @@ async function main() {
   // Discover the OTP template up front so /api/health is honest from the first probe.
   // Never blocks boot: an 11za outage must not take the whole service down.
   onboarding.refresh().catch((e) => console.warn(`[onboarding] initial template discovery failed: ${e}`));
+  // Re-check on a timer too: /api/health reads the agent's cached view, and with an
+  // idle funnel nothing else would ever refresh it — a Meta approval would go
+  // unnoticed until the next signup. unref() keeps the timer from blocking shutdown.
+  setInterval(() => { onboarding.refresh().catch(() => {}); }, 10 * 60 * 1000).unref();
   const signups = new Signups(onboarding);
   await signups.init(ledger.getPool());
   onboarding.bindStore(signups);
