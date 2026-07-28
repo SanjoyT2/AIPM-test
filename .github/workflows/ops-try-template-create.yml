@@ -1,0 +1,47 @@
+name: Ops — try 11za template creation API
+
+# Experimental, manual: the public 11za collection documents only template READS,
+# but webhook add/delete exist — so template-create endpoints may exist undocumented.
+# Tries the plausible route names with a well-formed signup_otp payload. Success
+# creates exactly the template we need; unknown routes just error.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try candidate create/update endpoints
+        env:
+          WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
+          WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
+        run: |
+          BODY_TEXT="{{1}} is your Degree2Destiny verification code. It expires in 10 minutes."
+          PAYLOAD=$(cat <<EOF
+          {
+            "authToken": "${WA_API_TOKEN}",
+            "originWebsite": "${WA_ORIGIN_WEBSITE}",
+            "templateName": "signup_otp",
+            "name": "signup_otp",
+            "language": "en",
+            "category": "AUTHENTICATION",
+            "body": "${BODY_TEXT}",
+            "bodyText": "${BODY_TEXT}",
+            "components": [
+              { "type": "BODY", "text": "${BODY_TEXT}", "example": { "texts": ["482913"] } }
+            ],
+            "example": ["482913"]
+          }
+          EOF
+          )
+          for ep in addTemplate add createTemplate create submitTemplate updateTemplate templateCreate; do
+            echo "==== /apis/template/${ep} ===="
+            curl -sS -o /tmp/resp -w "HTTP %{http_code}\n" -X POST "https://api.11za.in/apis/template/${ep}" \
+              -H "Content-Type: application/json" -d "${PAYLOAD}" || true
+            head -c 500 /tmp/resp; echo
+          done
+          echo "==== catalog after probes ===="
+          curl -sS -X POST "https://api.11za.in/apis/template/getTemplates" \
+            -H "Content-Type: application/json" \
+            -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\",\"limit\":10,\"page\":1,\"search\":\"\"}" \
+            | head -c 1500; echo
