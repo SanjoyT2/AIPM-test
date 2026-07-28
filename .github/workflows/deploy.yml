@@ -79,6 +79,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPERATOR_KEY: ${{ secrets.OPERATOR_KEY }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_ADMIN_EMAIL }}
+          BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
           WA_API_BASE: ${{ secrets.WA_API_BASE }}
           WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
           WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
@@ -96,6 +98,11 @@ jobs:
             printf 'DATABASE_URL=%s\n'      "$DATABASE_URL"
             printf 'OPENAI_API_KEY=%s\n'    "$OPENAI_API_KEY"
             printf 'OPERATOR_KEY=%s\n'      "$OPERATOR_KEY"
+            # Recovery only: the service applies these ONLY when zero accounts exist,
+            # so they cannot inject an admin into a live system. Without them, a wiped
+            # database means nobody can sign in to the console at all.
+            printf 'BOOTSTRAP_ADMIN_EMAIL=%s\n'    "$BOOTSTRAP_ADMIN_EMAIL"
+            printf 'BOOTSTRAP_ADMIN_PASSWORD=%s\n' "$BOOTSTRAP_ADMIN_PASSWORD"
             printf 'WA_API_BASE=%s\n'       "${WA_API_BASE:-https://api.11za.in}"
             printf 'WA_API_TOKEN=%s\n'      "$WA_API_TOKEN"
             printf 'WA_ORIGIN_WEBSITE=%s\n' "$WA_ORIGIN_WEBSITE"
