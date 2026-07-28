@@ -20,18 +20,23 @@ jobs:
           INNER="{\"name\":\"signup_otp\",\"category\":\"AUTHENTICATION\",\"language\":\"en\",\"components\":[{\"type\":\"BODY\",\"text\":\"${BODY_TEXT}\",\"example\":{\"texts\":[\"482913\"]}}]}"
           AUTH="\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\""
 
-          # The working shape is {"template": {...}} — "name already exist" for
-          # signup_otp proved it parses and validates. Now create a genuinely new
-          # template (day-2 nudge from whatsapp-templates.yaml) to confirm end-to-end.
-          NUDGE="{\"name\":\"nudge_day2\",\"category\":\"UTILITY\",\"localizations\":[{\"language\":\"en\",\"components\":[{\"type\":\"BODY\",\"text\":\"{{1}}, we have missed you for 2 days. 10-minute lesson today? Reply START to continue.\",\"example\":{\"texts\":[\"Priya\"]}}]}]}"
-          echo "==== create nudge_day2 ===="
-          curl -sS -o /tmp/resp -w "HTTP %{http_code}\n" -X POST "https://api.11za.in/apis/template/create" \
-            -H "Content-Type: application/json" -d "{${AUTH},\"template\":${NUDGE}}" || true
-          head -c 600 /tmp/resp; echo
-          echo "==== re-check signup_otp name (expect: already exist) ===="
-          curl -sS -o /tmp/resp -w "HTTP %{http_code}\n" -X POST "https://api.11za.in/apis/template/create" \
-            -H "Content-Type: application/json" -d "{${AUTH},\"template\":${INNER}}" || true
-          head -c 600 /tmp/resp; echo
+          # Working contract: {template: {name, category, localizations:[{language,
+          # components:[{type:BODY,text,example}]}]}}. Create the whole proactive
+          # fleet from whatsapp-templates.yaml ("already exist" = fine, idempotent).
+          create() { # name category body example1 [example2]
+            local EX="[\"$4\"]"; if [ -n "$5" ]; then EX="[\"$4\",\"$5\"]"; fi
+            local T="{\"name\":\"$1\",\"category\":\"$2\",\"localizations\":[{\"language\":\"en\",\"components\":[{\"type\":\"BODY\",\"text\":\"$3\",\"example\":{\"texts\":${EX}}}]}]}"
+            echo "==== create $1 ===="
+            curl -sS -o /tmp/resp -w "HTTP %{http_code}\n" -X POST "https://api.11za.in/apis/template/create" \
+              -H "Content-Type: application/json" -d "{${AUTH},\"template\":${T}}" || true
+            head -c 400 /tmp/resp; echo
+          }
+          create nudge_day3_streak UTILITY "Your streak was {{1}} days. Come back - one lesson restarts it. Reply START." "5"
+          create warning_day5 UTILITY "{{1}}, it has been 5 days. The 90-day clock is running - take today's lesson to protect your progress. Reply START." "Priya"
+          create gate_reminder UTILITY "Your {{1}} gate is tomorrow (Saturday). Reply PREP to get ready." "Level 1"
+          create milestone_levelup UTILITY "Congratulations {{1}}! You cleared {{2}}. The next level is ready - reply START." "Priya" "Level 1"
+          create weekly_checkin UTILITY "{{1}}, time for your weekly check-in. How is your project going? Reply UPDATE to share your progress." "Priya"
+          create signup_otp AUTHENTICATION "${BODY_TEXT}" "482913"
           echo "==== catalog after probes ===="
           curl -sS -X POST "https://api.11za.in/apis/template/getTemplates" \
             -H "Content-Type: application/json" \
