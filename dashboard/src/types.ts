@@ -120,6 +120,39 @@ export interface CohortRow {
   completed: number; total: number; modules_complete: number; modules_total: number;
   project: { title: string; stakeholder: string; status: string } | null;
 }
+/* ------------------------------------------------------------ accounts + roles */
+
+export const ROLES = ["admin", "coach", "assessor", "learner"] as const;
+export type Role = (typeof ROLES)[number];
+
+/** Mirrors PERMISSIONS in service/src/auth.ts — the server is the authority. */
+export type Permission =
+  | "authorCurriculum" | "manageLearners" | "viewSignups"
+  | "assess" | "configureAgents" | "manageUsers" | "viewOperator";
+
+export interface SessionUser {
+  user_id: string;
+  email: string;
+  name?: string;
+  role: Role;
+  learner_id?: string;
+  must_change_password?: boolean;
+}
+
+export interface AccountRow extends SessionUser {
+  disabled?: boolean;
+  created_at?: string;
+  last_login_at?: string;
+}
+
+/** Plain-English summary of each role, shown when creating an account. */
+export const ROLE_BLURB: Record<Role, string> = {
+  admin: "Everything, plus creating and disabling accounts.",
+  coach: "Curriculum authoring, cohort, journeys, enrollment and the signups roster.",
+  assessor: "Grading, integrity reviews and escalations. Read-only on curriculum.",
+  learner: "Their own journey only — needs a learner_id to scope it to.",
+};
+
 /** The four lesson shapes the Trainer knows how to render. */
 export const LESSON_TYPES = ["micro", "quiz", "roleplay", "task"] as const;
 export type LessonType = (typeof LESSON_TYPES)[number];
@@ -159,7 +192,7 @@ export interface Signup {
 }
 
 export interface Journey {
-  learner_id: string; enrolled: boolean; course_id?: string;
+  learner_id: string; enrolled: boolean; course_id?: string; course_title?: string;
   completed?: number; total?: number;
   next_lesson?: { lesson_id: string; title: string; type: string; module: string } | null;
   project?: { title: string; stakeholder: string; problem: string; success_metric: string; status: string } | null;

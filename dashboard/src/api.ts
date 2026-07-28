@@ -1,8 +1,14 @@
-import type { AgentDetail, AgentSummary, AgentTransaction, CohortRow, CostRollupRow, CourseDetail, CourseSummary, GuardrailRuleDef, GuardrailSet, Health, Journey, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary, NewLesson, NewModule, Signup } from "./types";
+import type { AccountRow, AgentDetail, AgentSummary, AgentTransaction, CohortRow, CostRollupRow, CourseDetail, CourseSummary, GuardrailRuleDef, GuardrailSet, Health, Journey, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary, NewLesson, NewModule, Role, Signup } from "./types";
+
+/** Surfaces the server's own error text — "sign in required", "role X cannot Y". */
+async function fail(r: Response, path: string): Promise<never> {
+  const d = await r.json().catch(() => null);
+  throw new Error((d as any)?.error ?? `${r.status} ${r.statusText} on ${path}`);
+}
 
 async function get<T>(path: string): Promise<T> {
-  const r = await fetch(path);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} on ${path}`);
+  const r = await fetch(path, { credentials: "same-origin" });
+  if (!r.ok) return fail(r, path);
   return r.json() as Promise<T>;
 }
 
@@ -71,6 +77,21 @@ export const api = {
     opPut<{ lesson_id: string }>(`/api/lessons/${encodeURIComponent(lessonId)}`, patch),
   deleteLesson: (lessonId: string) => opDel<{ ok: boolean }>(`/api/lessons/${encodeURIComponent(lessonId)}`),
 
+  // Accounts (admin only). Sessions authenticate these — no operator key needed.
+  users: () => get<AccountRow[]>("/api/users"),
+  createUser: (u: { email: string; password: string; role: Role; name?: string; learner_id?: string }) =>
+    post<AccountRow>("/api/users", u),
+  setUserDisabled: (userId: string, disabled: boolean) =>
+    post<{ ok: boolean }>(`/api/users/${encodeURIComponent(userId)}/disabled`, { disabled }),
+  resetUserPassword: (userId: string, password: string) =>
+    post<{ ok: boolean }>(`/api/users/${encodeURIComponent(userId)}/password`, { password }),
+  changeMyPassword: (current: string, next: string) =>
+    post<{ ok: boolean }>("/api/auth/password", { current, next }),
+
+  // The signed-in learner's own view — the id comes off the session, never the URL.
+  myJourney: () => get<Journey>("/api/me/journey"),
+  myCheckin: () => post<{ message: string; status: string }>("/api/me/checkin", {}),
+
   // Signups roster (operator-gated — this is learner PII) + enrollment
   signups: () => opFetch<Signup[]>("/api/signups", { method: "GET" }),
   signupStats: () => get<{ verified: number; pending: number }>("/api/signup/stats"),
@@ -88,14 +109,17 @@ export const api = {
 };
 
 async function del(path: string): Promise<unknown> {
-  const r = await fetch(path, { method: "DELETE" });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} on ${path}`);
+  const r = await fetch(path, { method: "DELETE", credentials: "same-origin" });
+  if (!r.ok) return fail(r, path);
   return r.json();
 }
 
 async function post<T = unknown>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} on ${path}`);
+  const r = await fetch(path, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) return fail(r, path);
   return r.json() as Promise<T>;
 }
 
