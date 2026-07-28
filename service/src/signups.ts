@@ -21,6 +21,23 @@ export interface Learner {
   otp_hash?: string;
   otp_expires?: number;
   otp_sent_at?: number;
+  kyc?: LearnerKyc;
+}
+
+/**
+ * Document verification state, written by the Onboarding agent from WhatsApp uploads.
+ * PRIVACY: the full Aadhaar number is NEVER stored, logged, or returned by the
+ * extraction model — only the last 4 digits, for the operator to eyeball against
+ * a physical card if ever needed. Raw documents are processed in memory and dropped.
+ */
+export interface LearnerKyc {
+  id_status?: "verified" | "name_mismatch" | "unreadable";
+  id_name?: string;
+  id_dob?: string;
+  aadhaar_last4?: string;
+  cv_status?: "received";
+  cv_summary?: { education?: string; skills?: string[]; experience?: string; highlights?: string[] };
+  updated_at?: string;
 }
 
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -136,6 +153,21 @@ export class Signups {
     const verified: Learner = { ...l, status: "verified", verified_at: new Date().toISOString(), otp_hash: undefined, otp_expires: undefined };
     await this.put(verified);
     return { ok: true, learner: this.publicView(verified) };
+  }
+
+  /** Look up a learner by id (lrn-<e164>) — the Onboarding agent's handle on records. */
+  async getByLearnerId(learnerId: string): Promise<Learner | null> {
+    const phone = learnerId.replace(/^lrn-/, "");
+    return this.get(phone);
+  }
+
+  /** Merge document-verification results onto the learner (Onboarding agent only). */
+  async applyKyc(learnerId: string, patch: LearnerKyc): Promise<boolean> {
+    const l = await this.getByLearnerId(learnerId);
+    if (!l) return false;
+    l.kyc = { ...l.kyc, ...patch, updated_at: new Date().toISOString() };
+    await this.put(l);
+    return true;
   }
 
   /**

@@ -14,6 +14,8 @@
  *     usable template exists, instead of letting signups fail silently.
  */
 import { settings } from "./settings.js";
+import type { LlmGateway } from "./gateway.js";
+import type { LearnerKyc, Signups } from "./signups.js";
 import type { WaClient, WaSendResult } from "./wa-client.js";
 
 /** What the operator should create when discovery comes up empty. */
@@ -55,8 +57,14 @@ export class Onboarding {
   private lastChecked = 0;
   private lastError: string | null = null;
   private refreshing: Promise<void> | null = null;
+  private store: Signups | null = null;
 
-  constructor(private wa: WaClient) {}
+  constructor(private wa: WaClient, private gateway?: LlmGateway) {}
+
+  /** Late-bound: Signups needs Onboarding for OTPs, Onboarding needs Signups for KYC. */
+  bindStore(store: Signups): void {
+    this.store = store;
+  }
 
   /**
    * Query 11za for the template catalog and pick the OTP template. A configured
@@ -194,4 +202,147 @@ export class Onboarding {
       action_needed: this.resolved ? null : RECOMMENDED_TEMPLATE,
     };
   }
+
+  /* ------------------------------------------------- document intake (KYC + CV) */
+
+  /**
+   * A learner sent a document on WhatsApp (CV or Aadhaar card). Download it, extract
+   * the fields with the vision model, verify, store — and answer in-thread (they just
+   * messaged us, so the 24h window is definitionally open).
+   *
+   * PRIVACY RULES (non-negotiable):
+   *  - the document is processed entirely in memory and never written to disk,
+   *  - the model is instructed to return the Aadhaar number's LAST 4 DIGITS ONLY,
+   *    and the stored record carries nothing more,
+   *  - nothing from the document is ever logged.
+   */
+  async processInboundMedia(input: {
+    learnerId: string; mediaUrl: string; filename?: string; caption?: string;
+  }): Promise<{ reply: string; kind?: string }> {
+    const learner = await this.store?.getByLearnerId(input.learnerId);
+    if (!learner) {
+      return { reply: "Welcome! Please sign up first at d2d.college2career.app — then send your documents here." };
+    }
+    if (!this.gateway || this.gateway.stubMode) {
+      return { reply: "Got your document — our verification desk is offline right now. We'll process it soon.", kind: "deferred" };
+    }
+
+    const doc = await fetchMedia(input.mediaUrl, input.filename);
+    if (!doc) {
+      return { reply: "We couldn't read that file. Please send your CV or Aadhaar as a clear photo (JPG/PNG) or PDF, under 10 MB." };
+    }
+
+    const res = await this.gateway.complete({
+      tier: "deep", role: "actor",
+      system: EXTRACTION_PROMPT,
+      user: `Signup name on record: "${learner.name ?? "(not given)"}". Caption sent with the file: "${input.caption ?? ""}". Classify and extract per the rules.`,
+      attachments: [doc],
+      maxTokens: 700,
+    });
+
+    const parsed = parseExtraction(res.text);
+    if (!parsed || parsed.kind === "other" || parsed.readable === false) {
+      return {
+        reply: "Hmm, that doesn't look like a CV or Aadhaar card (or the photo is too blurry). Please send a clear, well-lit photo or the original PDF.",
+        kind: "other",
+      };
+    }
+
+    if (parsed.kind === "aadhaar") {
+      const idName = (parsed.aadhaar?.name ?? "").trim();
+      const match = namesMatch(learner.name, idName);
+      const patch: LearnerKyc = {
+        id_status: !idName ? "unreadable" : match === false ? "name_mismatch" : "verified",
+        id_name: idName || undefined,
+        id_dob: parsed.aadhaar?.dob || undefined,
+        aadhaar_last4: (parsed.aadhaar?.last4 ?? "").replace(/\D/g, "").slice(-4) || undefined,
+      };
+      await this.store!.applyKyc(input.learnerId, patch);
+      if (patch.id_status === "verified") {
+        return { reply: `Thanks ${idName.split(/\s+/)[0]}! ✅ Your ID is verified.${learner.kyc?.cv_status ? " You're all set — reply START to begin." : " Now send your CV (photo or PDF) and you're all set."}`, kind: "aadhaar" };
+      }
+      if (patch.id_status === "name_mismatch") {
+        return { reply: `Thanks! We read the name "${idName}" on the card, which doesn't match your signup name "${learner.name}". No problem — our team will review it. You can continue meanwhile.`, kind: "aadhaar" };
+      }
+      return { reply: "We received your ID but couldn't read it clearly. Please send a sharper, well-lit photo of the front of the card.", kind: "aadhaar" };
+    }
+
+    // CV
+    const patch: LearnerKyc = {
+      cv_status: "received",
+      cv_summary: {
+        education: parsed.cv?.education || undefined,
+        skills: parsed.cv?.skills?.slice(0, 15),
+        experience: parsed.cv?.experience || undefined,
+        highlights: parsed.cv?.highlights?.slice(0, 5),
+      },
+    };
+    await this.store!.applyKyc(input.learnerId, patch);
+    return {
+      reply: `Great, CV received! 📄${learner.kyc?.id_status === "verified" ? " You're all set — reply START to begin your journey." : " Now send a photo of your Aadhaar card to verify your identity."}`,
+      kind: "cv",
+    };
+  }
+}
+
+/* ------------------------------------------------------------ intake helpers */
+
+const EXTRACTION_PROMPT = `You are the document-intake step of an education program's onboarding. The attached file is either a CV/resume or an Indian Aadhaar identity card.
+
+Return STRICT JSON only, no prose, no markdown fences:
+{"kind":"aadhaar"|"cv"|"other","readable":true|false,
+ "aadhaar":{"name":"...","dob":"YYYY-MM-DD or as printed","gender":"...","last4":"1234"},
+ "cv":{"education":"one line","skills":["..."],"experience":"one line","highlights":["..."]}}
+
+Include only the object matching "kind". Rules:
+- PRIVACY, ABSOLUTE: never output the full Aadhaar number. Output ONLY its last 4 digits in "last4". Do not echo the number anywhere else.
+- "readable": false if the image is too blurry/cropped to extract reliably.
+- A PAN card, marksheet, driving licence or anything else that is neither CV nor Aadhaar => "kind":"other".`;
+
+/** Download the media in memory with a hard size cap; returns a gateway attachment. */
+async function fetchMedia(url: string, filename?: string): Promise<{ kind: "image" | "pdf"; dataUrl: string; filename?: string } | null> {
+  try {
+    if (!/^https:\/\//i.test(url)) return null;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 20_000);
+    const res = await fetch(url, { signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 10 * 1024 * 1024) return null;
+
+    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+    const name = (filename ?? url.split("?")[0]).toLowerCase();
+    const isPdf = ct.includes("pdf") || name.endsWith(".pdf");
+    const isImage = ct.startsWith("image/") || /\.(jpe?g|png|webp)$/.test(name);
+    if (!isPdf && !isImage) return null;
+
+    const mime = isPdf ? "application/pdf" : ct.startsWith("image/") ? ct.split(";")[0] : "image/jpeg";
+    return {
+      kind: isPdf ? "pdf" : "image",
+      dataUrl: `data:${mime};base64,${buf.toString("base64")}`,
+      filename: isPdf ? (filename ?? "document.pdf") : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseExtraction(text: string): any | null {
+  // Models occasionally wrap JSON in fences despite instructions — strip and retry.
+  const raw = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try { return JSON.parse(raw); } catch { /* fall through */ }
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch { /* unreadable */ } }
+  return null;
+}
+
+/** Loose token-overlap name check: "Priya Sharma" vs "PRIYA SHARMA" / "Sharma, Priya". */
+function namesMatch(signupName: string | undefined, idName: string): boolean | null {
+  if (!signupName?.trim() || !idName.trim()) return null; // nothing to compare — not a mismatch
+  const tok = (s: string) => new Set(s.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((w) => w.length > 1));
+  const a = tok(signupName), b = tok(idName);
+  let overlap = 0;
+  for (const w of a) if (b.has(w)) overlap++;
+  return overlap >= Math.min(2, a.size, b.size); // both tokens of a 2-word name; 1 suffices for single names
 }

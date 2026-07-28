@@ -18,6 +18,9 @@ import type { WaClient } from "./wa-client.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Learner ids are lrn-<e164>; 11za addresses the bare handset number. */
+const phoneOf = (learnerId: string) => learnerId.replace(/^lrn-/, "");
+
 // Silence-ladder rung -> approved template name (must exist in whatsapp-templates.yaml
 // AND be approved in 11za). Editable mapping; keep names in sync with 11za.
 const LADDER_TEMPLATE: Record<string, string> = {
@@ -130,7 +133,8 @@ export class DailyLoop {
     const reply = (tx.output as { text?: string })?.text ?? "";
     let sent: { ok: boolean; stub: boolean } | undefined;
     if (reply && tx.status !== "blocked") {
-      const r = await this.wa.sendText(learnerId, reply);
+      // 11za addresses handsets, not learner ids — strip the lrn- prefix.
+      const r = await this.wa.sendText(phoneOf(learnerId), reply);
       sent = { ok: r.ok, stub: r.stub };
       if (!r.ok && !r.stub) this.log(`wa send failed for ${learnerId}: ${r.detail}`);
     }
@@ -163,7 +167,11 @@ export class DailyLoop {
         continue;
       }
       const template = LADDER_TEMPLATE[rung];
-      const r = await this.wa.sendTemplate(learner, template, { name: learner });
+      // Fill the template's {{1}} slot per whatsapp-templates.yaml: the streak rung
+      // takes a day count, the others a name. The loop has no roster access (v0), so
+      // the name slot gets a warm generic rather than a raw learner id.
+      const slot = rung === "second_nudge" ? String(days) : "Dost";
+      const r = await this.wa.sendTemplate(phoneOf(learner), template, { data: [slot] });
       this.log(`silence-ladder: ${learner} ${days}d -> template ${template} (${r.stub ? "stub" : r.ok ? "sent" : "FAILED"})`);
     }
   }

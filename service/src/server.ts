@@ -102,12 +102,13 @@ async function main() {
     console.info(`[wa] 11za outbound live — base=${settings.wa.apiBase}`);
   }
   const dailyLoop = new DailyLoop(executor, agents, frameworks, wa, resources);
-  const onboarding = new Onboarding(wa);
+  const onboarding = new Onboarding(wa, gateway);
   // Discover the OTP template up front so /api/health is honest from the first probe.
   // Never blocks boot: an 11za outage must not take the whole service down.
   onboarding.refresh().catch((e) => console.warn(`[onboarding] initial template discovery failed: ${e}`));
   const signups = new Signups(onboarding);
   await signups.init(ledger.getPool());
+  onboarding.bindStore(signups);
   const lms = new LmsStore();
   await lms.init(ledger.getPool());
   const learning = new LearningEngine(lms, evidence, gateway, dailyLoop, frameworks.versions.competency_framework);
@@ -850,7 +851,9 @@ async function main() {
     const b = (req.body ?? {}) as Record<string, string>;
     const from = b.from ?? b.phone ?? b.sender ?? "";
     const text = b.text ?? b.message ?? b.body ?? "";
-    if (!from || !text) {
+    // Media lands under provider-specific keys; accept the plausible ones.
+    const mediaUrl = b.mediaUrl ?? b.media_url ?? b.myfile ?? b.fileUrl ?? b.file_url ?? b.attachment ?? b.image ?? b.document ?? "";
+    if (!from || (!text && !mediaUrl)) {
       req.log.warn({ payload: req.body }, "11za inbound: unrecognized payload shape");
       return { received: true, routed: false };
     }
@@ -860,8 +863,23 @@ async function main() {
     // same person and silently re-enrol them, orphaning whatever the coach enrolled.
     const normalized = normalizePhone(from);
     const learnerId = normalized ? `lrn-${normalized}` : from;
-    // Route through the LMS journey walker (serve lesson / grade / advance / advise).
     dailyLoop.touch(learnerId);
+
+    // A document (CV / Aadhaar) goes to the Onboarding agent, not the lesson walker.
+    // Deliberately no URL or filename in the log line — it's an identity document.
+    if (mediaUrl) {
+      const r = await onboarding.processInboundMedia({
+        learnerId, mediaUrl, filename: b.fileName ?? b.filename, caption: text || b.caption,
+      });
+      if (r.reply) {
+        const sent = await wa.sendText(from, r.reply);
+        if (!sent.ok && !sent.stub) req.log.warn(`wa send failed for ${from}`);
+      }
+      req.log.info({ from, learnerId, kind: r.kind ?? "unknown" }, "11za inbound document processed");
+      return { received: true, routed: true, document: r.kind ?? "unknown" };
+    }
+
+    // Route through the LMS journey walker (serve lesson / grade / advance / advise).
     const result = await learning.onMessage(learnerId, text);
     if (result.reply) {
       const sent = await wa.sendText(from, result.reply); // reply to the handset, not the id

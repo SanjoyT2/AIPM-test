@@ -23,6 +23,11 @@ export interface GatewayRequest {
   system: string;
   user: string;
   maxTokens?: number;
+  /**
+   * Documents/images for multimodal calls (Onboarding's CV + ID intake). Passed as
+   * data: URLs so no learner document ever touches disk or an external store.
+   */
+  attachments?: { kind: "image" | "pdf"; dataUrl: string; filename?: string }[];
 }
 
 export interface GatewayResponse {
@@ -71,12 +76,25 @@ export class LlmGateway {
       };
     }
 
+    // Text-only stays a plain string; attachments switch the user turn to content
+    // parts (image_url for images, file for PDFs — both supported by gpt-4o+).
+    const userContent: any = req.attachments?.length
+      ? [
+          { type: "text", text: req.user },
+          ...req.attachments.map((a) =>
+            a.kind === "image"
+              ? { type: "image_url", image_url: { url: a.dataUrl } }
+              : { type: "file", file: { filename: a.filename ?? "document.pdf", file_data: a.dataUrl } },
+          ),
+        ]
+      : req.user;
+
     const res = await this.client.chat.completions.create({
       model,
       max_completion_tokens: req.maxTokens ?? 1024,
       messages: [
         { role: "system", content: req.system },
-        { role: "user", content: req.user },
+        { role: "user", content: userContent },
       ],
     });
     const text = res.choices[0]?.message?.content ?? "";
