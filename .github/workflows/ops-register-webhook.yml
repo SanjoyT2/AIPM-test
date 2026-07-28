@@ -1,0 +1,28 @@
+name: Ops — register 11za inbound webhook
+
+# Manual, one-shot: points the 11za account's inbound webhook at production.
+# The URL carries the shared secret as a query param because 11za's webhook
+# config has no custom-header field (see server.ts /webhooks/11za).
+on:
+  workflow_dispatch:
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add inbound webhook
+        env:
+          WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
+          WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
+          WA_WEBHOOK_SECRET: ${{ secrets.WA_WEBHOOK_SECRET }}
+        run: |
+          HOOK="https://d2d.college2career.app/webhooks/11za?secret=${WA_WEBHOOK_SECRET}"
+          curl -sS -X POST "https://api.11za.in/apis/inboundwebhook/add" \
+            -H "Content-Type: application/json" \
+            -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\",\"webhookUrl\":\"${HOOK}\",\"statusMessageWebhookUrl\":\"\"}" \
+            | head -c 1000; echo
+          echo "==== verify ===="
+          curl -sS -X POST "https://api.11za.in/apis/inboundwebhook/get" \
+            -H "Content-Type: application/json" \
+            -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\"}" \
+            | head -c 1000; echo
