@@ -23,7 +23,7 @@ jobs:
           # The working shape is {"template": {...}} — "name already exist" for
           # signup_otp proved it parses and validates. Now create a genuinely new
           # template (day-2 nudge from whatsapp-templates.yaml) to confirm end-to-end.
-          NUDGE="{\"name\":\"nudge_day2\",\"category\":\"UTILITY\",\"language\":\"en\",\"components\":[{\"type\":\"BODY\",\"text\":\"{{1}}, we have missed you for 2 days. 10-minute lesson today? Reply START to continue.\",\"example\":{\"texts\":[\"Priya\"]}}]}"
+          NUDGE="{\"name\":\"nudge_day2\",\"category\":\"UTILITY\",\"localizations\":[{\"language\":\"en\",\"components\":[{\"type\":\"BODY\",\"text\":\"{{1}}, we have missed you for 2 days. 10-minute lesson today? Reply START to continue.\",\"example\":{\"texts\":[\"Priya\"]}}]}]}"
           echo "==== create nudge_day2 ===="
           curl -sS -o /tmp/resp -w "HTTP %{http_code}\n" -X POST "https://api.11za.in/apis/template/create" \
             -H "Content-Type: application/json" -d "{${AUTH},\"template\":${NUDGE}}" || true
