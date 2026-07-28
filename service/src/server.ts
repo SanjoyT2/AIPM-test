@@ -371,6 +371,15 @@ async function main() {
     await onboarding.refresh();
     return onboarding.status();
   });
+  /*
+   * Fleet reconciliation: every template in whatsapp-templates.yaml vs the live
+   * 11za account. Reading it also heals: missing templates are (re)submitted to
+   * Meta. approved = usable now; pending/submitted = Meta reviewing; failed = fix me.
+   */
+  app.get("/api/templates/status", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    return { templates: await onboarding.fleetStatus() };
+  });
 
   // ---- Public signup (landing page) — WhatsApp OTP onboarding ----
   app.post("/api/signup", async (req, reply) => {

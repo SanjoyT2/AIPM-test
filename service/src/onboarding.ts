@@ -13,6 +13,9 @@
  *   - reports exactly what an operator must create in the 11za dashboard when no
  *     usable template exists, instead of letting signups fail silently.
  */
+import fs from "node:fs";
+import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import { settings } from "./settings.js";
 import type { LlmGateway } from "./gateway.js";
 import type { LearnerKyc, Signups } from "./signups.js";
@@ -280,6 +283,41 @@ export class Onboarding {
     };
   }
 
+  /* ------------------------------------------------ template fleet management */
+
+  /**
+   * The fleet mechanism: every template in whatsapp-templates.yaml is expected to
+   * exist on the 11za account. This reconciles expectation with reality —
+   *   approved  = visible in the account catalog (Meta has approved it; usable NOW)
+   *   pending   = exists but not listed (Meta still reviewing — 11za hides these)
+   *   submitted = was missing; the agent just created and submitted it
+   *   failed    = creation rejected (detail says why)
+   * Calling it repeatedly is safe: existing names come back "already exist".
+   * This is also the "move on" signal: a rung/agent whose template shows approved
+   * is deliverable; anything else still waits on Meta.
+   */
+  async fleetStatus(): Promise<{ name: string; category: string; state: "approved" | "pending" | "submitted" | "failed" | "stub"; detail?: string }[]> {
+    const expected = loadExpectedTemplates();
+    if (this.wa.stubMode) return expected.map((t) => ({ name: t.name, category: t.category, state: "stub" as const }));
+
+    await this.refresh(); // fresh catalog: approved templates are the visible ones
+    const approved = new Set(
+      this.catalog.filter((t) => !t.status || /approved|active|enabled/i.test(String(t.status))).map((t) => t.name),
+    );
+
+    const out: { name: string; category: string; state: "approved" | "pending" | "submitted" | "failed"; detail?: string }[] = [];
+    for (const t of expected) {
+      if (approved.has(t.name)) { out.push({ name: t.name, category: t.category, state: "approved" }); continue; }
+      const r = await this.wa.createTemplate({
+        name: t.name, category: t.category, language: t.language, bodyText: t.body, exampleTexts: t.examples,
+      });
+      if (r.ok) out.push({ name: t.name, category: t.category, state: "submitted" });
+      else if (/already exist/i.test(r.detail ?? "")) out.push({ name: t.name, category: t.category, state: "pending" });
+      else out.push({ name: t.name, category: t.category, state: "failed", detail: r.detail });
+    }
+    return out;
+  }
+
   /* ------------------------------------------------- document intake (KYC + CV) */
 
   /**
@@ -359,6 +397,36 @@ export class Onboarding {
       reply: `Great, CV received! 📄${learner.kyc?.id_status === "verified" ? " You're all set — reply START to begin your journey." : " Now send a photo of your Aadhaar card to verify your identity."}`,
       kind: "cv",
     };
+  }
+}
+
+/**
+ * Expected templates = whatsapp-templates.yaml (the editable source of truth).
+ * English bodies are used — that's what the fleet was submitted with. {{n}}
+ * placeholders get simple example values (Meta requires samples per variable).
+ */
+function loadExpectedTemplates(): { name: string; category: string; language: string; body: string; examples: string[] }[] {
+  try {
+    const file = path.join(settings.configDir, "templates", "whatsapp-templates.yaml");
+    const doc = parseYaml(fs.readFileSync(file, "utf8"));
+    return (doc?.templates ?? [])
+      .filter((t: any) => t?.name && (t.body_en || t.body))
+      .map((t: any) => {
+        const body = String(t.body_en ?? t.body);
+        const varCount = new Set([...body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;
+        const examples = Array.from({ length: Math.max(varCount, 1) }, (_, i) =>
+          t.category === "AUTHENTICATION" ? "482913" : i === 0 ? "Priya" : "Level 1",
+        );
+        return {
+          name: String(t.name),
+          category: String(t.category ?? doc?.defaults?.category ?? "UTILITY"),
+          language: "en",
+          body, examples,
+        };
+      });
+  } catch (e) {
+    console.warn(`[onboarding] could not load whatsapp-templates.yaml: ${e}`);
+    return [];
   }
 }
 

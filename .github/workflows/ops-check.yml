@@ -36,3 +36,10 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\"}" \
             | head -c 2000; echo
+
+      - name: Template fleet status (approved / pending / submitted)
+        env:
+          OPERATOR_KEY: ${{ secrets.OPERATOR_KEY }}
+        run: |
+          curl -fsS -H "x-operator-key: ${OPERATOR_KEY}" \
+            https://d2d.college2career.app/api/templates/status | python3 -m json.tool
