@@ -123,6 +123,27 @@ export class WaClient {
   }
 
   /**
+   * Create a template on the account and submit it for Meta approval. UNDOCUMENTED
+   * endpoint (absent from the public collection) — contract discovered empirically
+   * 2026-07: {template: {name, category, localizations: [{language, components}]}}.
+   * "Template name is already exist" (Status 400) = already created/pending — treat
+   * as idempotent success at call sites. Pending templates do NOT appear in the
+   * list endpoints until Meta approves them.
+   */
+  async createTemplate(t: { name: string; category: string; language: string; bodyText: string; exampleTexts: string[] }): Promise<WaSendResult> {
+    return this.post("/apis/template/create", {
+      template: {
+        name: t.name,
+        category: t.category,
+        localizations: [{
+          language: t.language,
+          components: [{ type: "BODY", text: t.bodyText, example: { texts: t.exampleTexts } }],
+        }],
+      },
+    });
+  }
+
+  /**
    * Inbound-webhook config on the 11za account. get returns the configured URL
    * (null = none or unreadable — 11za 500s with "Cannot convert undefined" when
    * nothing was ever configured). add overwrites the account-level setting.

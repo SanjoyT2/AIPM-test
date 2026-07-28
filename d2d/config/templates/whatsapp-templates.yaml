@@ -19,15 +19,29 @@ defaults:
   category: UTILITY        # UTILITY (course/service) vs MARKETING — affects approval + cost
 
 templates:
+  # NOTE 2026-07-28: every template below has been CREATED on the 11za account via
+  # the (undocumented) template/create API and submitted for Meta approval. The
+  # Onboarding agent self-creates signup_otp if it ever goes missing; the others
+  # were submitted one-off via .github/workflows/ops-try-template-create.yml.
+  # status: submitted = in Meta review; flip to approved when 11za shows it.
+
   # ---- Signup OTP (first contact — no window exists yet, template is mandatory) ----
   # The Onboarding agent discovers this from the 11za account at runtime and maps the
   # {{1}} slot to the code. AUTHENTICATION category: fastest Meta approval, lowest cost.
   - name: signup_otp
-    status: draft
+    status: submitted
     category: AUTHENTICATION
     language: en
     trigger: public_signup
     body_en: "{{1}} is your Degree2Destiny verification code. It expires in 10 minutes."
+
+  # ---- Coach weekly check-in (proactive, usually outside the window) ----
+  - name: weekly_checkin
+    status: submitted
+    category: UTILITY
+    language: en
+    trigger: coach_weekly_checkin
+    body_en: "{{1}}, time for your weekly check-in. How is your project going? Reply UPDATE to share your progress."
 
   # ---- Daily start nudge (only if learner hasn't self-initiated by cutoff) ----
   - name: daily_start_nudge

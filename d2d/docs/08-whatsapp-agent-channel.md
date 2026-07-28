@@ -43,13 +43,15 @@ drafts in `whatsapp-templates.yaml` and have never been created in 11za. The
 silence ladder literally cannot deliver a single rung right now: it fires,
 11za accepts, WhatsApp drops.
 
-**Recommendation:** when the operator creates `signup_otp` in the 11za
-dashboard, create the other five in the same sitting (bodies are in
-`whatsapp-templates.yaml`), plus one new `weekly_checkin` template for the
-Coach. One dashboard session unblocks the entire proactive fleet. The
-Onboarding agent's discovery loop already sees every approved template on the
-account (`/api/onboarding/status` lists them), so approval status is visible
-from our side the moment Meta grants it.
+**Update (2026-07-28, later):** 11za turned out to have an UNDOCUMENTED
+`POST /apis/template/create` endpoint (contract in `wa-client.createTemplate`).
+The whole proactive fleet — `nudge_day2`, `nudge_day3_streak`, `warning_day5`,
+`gate_reminder`, `milestone_levelup`, `weekly_checkin` — has been created via
+API and submitted for Meta approval, and the Onboarding agent now self-creates
+`signup_otp` whenever it finds it missing. Caveat learned the hard way:
+**pending templates are invisible to the list endpoints** — "Template name is
+already exist" on create is the only signal that one is in review. Health
+reports this as `otp_delivery: "awaiting_approval"`.
 
 ### Bugs found during this analysis (fixed in the same release)
 

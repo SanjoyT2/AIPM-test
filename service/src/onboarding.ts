@@ -41,7 +41,7 @@ interface ResolvedTemplate {
 
 export interface OnboardingStatus {
   mode: "stub" | "live";
-  otp_delivery: "stub" | "ready" | "no_template" | "unchecked";
+  otp_delivery: "stub" | "ready" | "awaiting_approval" | "no_template" | "unchecked";
   configured_template: string | null;
   resolved: ResolvedTemplate | null;
   last_checked: string | null;
@@ -87,6 +87,8 @@ export class Onboarding {
 
   private webhookState: OnboardingStatus["inbound_webhook"] = "unknown";
   private webhookForeignUrl?: string;
+  /** signup_otp has been submitted to Meta (by us or the operator) and is in review. */
+  private otpSubmitted = false;
 
   /**
    * The funnel is dead without the account's inbound webhook pointing at us — verify
@@ -176,8 +178,31 @@ export class Onboarding {
 
     if (this.resolved) {
       console.info(`[onboarding] OTP template ${this.resolved.matchedBy}: "${this.resolved.name}" (${this.resolved.language}, ${this.resolved.varCount} var slot${this.resolved.varCount === 1 ? "" : "s"})`);
-    } else {
-      console.warn(`[onboarding] No OTP-suitable template on the 11za account (${this.catalog.length} templates seen). Create "${RECOMMENDED_TEMPLATE.name}" in the 11za dashboard.`);
+      return;
+    }
+
+    /*
+     * No approved OTP template — author it ourselves via 11za's (undocumented)
+     * create API and submit for Meta approval. Pending templates are invisible to
+     * the list endpoints, so "name is already exist" is the normal signal that it's
+     * submitted and in review; once approved, discovery above picks it up.
+     */
+    if (!this.otpSubmitted) {
+      const r = await this.wa.createTemplate({
+        name: RECOMMENDED_TEMPLATE.name,
+        category: RECOMMENDED_TEMPLATE.category,
+        language: RECOMMENDED_TEMPLATE.language,
+        bodyText: RECOMMENDED_TEMPLATE.body,
+        exampleTexts: ["482913"],
+      });
+      this.otpSubmitted = r.ok || /already exist/i.test(r.detail ?? "");
+      if (r.ok) {
+        console.info(`[onboarding] submitted "${RECOMMENDED_TEMPLATE.name}" to Meta for approval — will auto-activate once approved.`);
+      } else if (this.otpSubmitted) {
+        console.info(`[onboarding] "${RECOMMENDED_TEMPLATE.name}" already submitted — awaiting Meta approval.`);
+      } else {
+        console.warn(`[onboarding] template self-creation failed: ${r.detail}`);
+      }
     }
   }
 
@@ -229,7 +254,8 @@ export class Onboarding {
   healthState(): OnboardingStatus["otp_delivery"] {
     if (this.wa.stubMode) return "stub";
     if (!this.lastChecked) return "unchecked";
-    return this.resolved ? "ready" : "no_template";
+    if (this.resolved) return "ready";
+    return this.otpSubmitted ? "awaiting_approval" : "no_template";
   }
 
   /** Ditto for the inbound-webhook wiring. */
@@ -247,7 +273,8 @@ export class Onboarding {
       last_checked: this.lastChecked ? new Date(this.lastChecked).toISOString() : null,
       last_error: this.lastError,
       account_templates: this.catalog,
-      action_needed: this.resolved ? null : RECOMMENDED_TEMPLATE,
+      // Submitted-and-pending needs patience, not operator action.
+      action_needed: this.resolved || this.otpSubmitted ? null : RECOMMENDED_TEMPLATE,
       inbound_webhook: this.wa.stubMode ? "stub" : this.webhookState,
       inbound_webhook_foreign_url: this.webhookForeignUrl,
     };
