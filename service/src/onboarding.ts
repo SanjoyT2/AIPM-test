@@ -92,13 +92,21 @@ export class Onboarding {
     }
     this.lastError = null;
 
-    const norm = (rec: any) => ({
-      name: String(rec.templateName ?? rec.name ?? rec.template_name ?? "").trim(),
-      status: rec.status ?? rec.templateStatus ?? rec.approvalStatus ?? undefined,
-      language: rec.language ?? rec.lang ?? undefined,
-      varCount: Number(rec.dynamicValueCount ?? rec.variableCount ?? rec.varCount ?? rec.count ?? NaN),
-      body: String(rec.body ?? rec.templateBody ?? rec.content ?? ""),
-    });
+    // Observed live record shape (2026-07): {name, localizations: [{status, language,
+    // components: [{type:"BODY", text}]}], dynamicValues: [{language, bodyDynamic}]}.
+    // Older/flat field names are kept as fallbacks.
+    const norm = (rec: any) => {
+      const loc = rec.localizations?.[0] ?? {};
+      const dyn = rec.dynamicValues?.[0] ?? {};
+      const bodyComp = (loc.components ?? []).find((c: any) => c?.type === "BODY");
+      return {
+        name: String(rec.templateName ?? rec.name ?? rec.template_name ?? "").trim(),
+        status: rec.status ?? loc.status ?? rec.templateStatus ?? rec.approvalStatus ?? undefined,
+        language: rec.language ?? loc.language ?? rec.lang ?? undefined,
+        varCount: Number(dyn.bodyDynamic ?? loc.bodyDynamic ?? rec.dynamicValueCount ?? rec.variableCount ?? rec.varCount ?? NaN),
+        body: String(bodyComp?.text ?? rec.body ?? rec.templateBody ?? rec.content ?? ""),
+      };
+    };
     const records = [...(all ?? []), ...(counts ?? [])].map(norm).filter((r) => r.name);
 
     // Merge by name: getTemplatesAll carries status/body, getTemp carries the var count.

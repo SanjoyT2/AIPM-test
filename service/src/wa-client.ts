@@ -151,7 +151,9 @@ export class WaClient {
 function parseTemplateList(text: string): any[] | null {
   try {
     const j = JSON.parse(text);
-    const list = Array.isArray(j) ? j : j.Data ?? j.data ?? j.templates ?? j.result ?? null;
+    // Observed live envelope: {Message, Data: {docs: [...]}, Status, IsSuccess}.
+    const list = Array.isArray(j) ? j
+      : j.Data?.docs ?? j.data?.docs ?? j.Data ?? j.data ?? j.templates ?? j.result ?? null;
     return Array.isArray(list) ? list : null;
   } catch {
     return null;
