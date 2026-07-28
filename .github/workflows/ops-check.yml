@@ -1,0 +1,18 @@
+name: Ops — onboarding status
+
+# Manual, read-only operational probe: forces the Onboarding agent to re-discover
+# the 11za template catalog and prints what it resolved. The response contains
+# template names/statuses only — no secrets, no learner PII.
+on:
+  workflow_dispatch:
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh + print onboarding status
+        env:
+          OPERATOR_KEY: ${{ secrets.OPERATOR_KEY }}
+        run: |
+          curl -fsS -X POST -H "x-operator-key: ${OPERATOR_KEY}" \
+            https://d2d.college2career.app/api/onboarding/refresh | python3 -m json.tool
