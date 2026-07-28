@@ -63,10 +63,22 @@ export class WaClient {
     return this.post("/apis/sendMessage/sendMessages", { sendto, contentType: "text", text });
   }
 
-  /** Approved template — the only thing allowed outside the window. */
-  sendTemplate(sendto: string, templateName: string, opts: { language?: string; name?: string } = {}): Promise<WaSendResult> {
+  /**
+   * Approved template — the only thing WhatsApp allows outside the 24h window, so this
+   * is the *only* reliable way to reach someone who has not messaged us first (signup
+   * OTPs, re-engagement nudges).
+   *
+   * `extra` is passed through untouched: 11za's variable fields differ per account and
+   * template, so the mapping belongs in configuration rather than baked in here.
+   */
+  sendTemplate(
+    sendto: string,
+    templateName: string,
+    opts: { language?: string; name?: string; extra?: Record<string, unknown> } = {},
+  ): Promise<WaSendResult> {
     return this.post("/apis/template/sendTemplate", {
       sendto, templateName, language: opts.language ?? "en", name: opts.name ?? "",
+      ...(opts.extra ?? {}),
     });
   }
 

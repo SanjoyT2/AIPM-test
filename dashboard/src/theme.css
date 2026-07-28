@@ -1,30 +1,40 @@
-/* D2D (Degree2Destiny) brand — Ink Navy anchor, sunrise-pastel accents,
-   Instrument Serif headings + Inter body. Per D2D Brand Guidelines (Jul 2026). */
+/* D2D (Degree2Destiny) brand — per D2D Brand Guidelines (Jul 2026).
+   Light-first, matching the guidelines: "Ink Navy carries body copy on light
+   backgrounds." Cream base, white surfaces, Ink Navy type, and the sunrise pastels
+   used as flat fills for panels and callouts rather than as thin accents on dark.
+   Type system: Instrument Serif headings, Poppins subtitles, Inter body/UI. */
 :root {
-  --bg: #0e1728;          /* Ink Navy */
-  --surface: #16213a;
-  --surface2: #1e2b48;
-  --ink: #eef0f6;
-  --ink2: #b7bdd4;
-  --muted: #7e86a3;
-  --line: rgba(238, 240, 246, 0.09);
-  --line2: rgba(238, 240, 246, 0.05);
-  /* sunrise pastels */
+  --bg: #fbf8f3;          /* cream — same base as the landing page */
+  --surface: #ffffff;
+  --surface2: #f4f1ec;
+  --ink: #0e1728;         /* Ink Navy — body copy */
+  --ink2: #414a63;
+  --muted: #7b8299;
+  --line: rgba(14, 23, 40, 0.11);
+  --line2: rgba(14, 23, 40, 0.06);
+  /* sunrise pastels — exact brand values */
   --peach: #f4beb9;
   --blush: #e5c0d9;
   --lavender: #bfc0df;
   --mint: #d6eade;
   --sky: #c0e1f2;
   --periwinkle: #afaad5;
-  --accent: #c6c1f0;       /* periwinkle, brightened for navy */
-  --accent-ink: #0e1728;
-  --accent-soft: rgba(175, 170, 213, 0.16);
-  --ok: #a7ddc2;
-  --warn: #f4c9a4;
-  --danger: #f2a3ac;
-  --info: #c0e1f2;
+  /* Periwinkle deepened for legible type/borders on cream; the pastel itself
+     stays available as a fill via --accent-soft. */
+  --accent: #6a5fd0;
+  --accent-ink: #ffffff;
+  --accent-soft: #efeefb;
+  --ok: #1f8a5b;
+  --ok-soft: #eaf6ef;
+  --warn: #9a6320;
+  --warn-soft: #fdf1e3;
+  --danger: #b0344b;
+  --danger-soft: #fdecec;
+  --info: #2a6f97;
+  --info-soft: #e8f3fa;
   --grad: linear-gradient(135deg, #f4beb9 0%, #e5c0d9 30%, #bfc0df 60%, #c0e1f2 100%);
   --font: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --display: "Poppins", "Inter", ui-sans-serif, sans-serif;
   --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
   --mono: "Geist Mono", ui-monospace, monospace;
 }
@@ -35,11 +45,11 @@ body { min-height: 100vh; font-size: 14px; line-height: 1.55; -webkit-font-smoot
 a { color: inherit; text-decoration: none; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(238, 240, 246, 0.1); border-radius: 5px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(238, 240, 246, 0.2); }
+::-webkit-scrollbar-thumb { background: rgba(14, 23, 40, 0.14); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(14, 23, 40, 0.26); }
 
 .layout { display: flex; min-height: 100vh; }
-.side { width: 212px; flex-shrink: 0; border-right: 1px solid var(--line); padding: 20px 12px; position: sticky; top: 0; height: 100vh; }
+.side { width: 212px; flex-shrink: 0; border-right: 1px solid var(--line); padding: 20px 12px; position: sticky; top: 0; height: 100vh; background: var(--surface); }
 .main { flex: 1; padding: 26px 30px; max-width: 1200px; }
 
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 6px 20px; }
@@ -48,16 +58,55 @@ a { color: inherit; text-decoration: none; }
 .brand .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 .nav a { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 8px; color: var(--ink2); font-size: 13.5px; margin-bottom: 2px; }
-.nav a:hover { background: var(--surface); color: var(--ink); }
-.nav a.active { background: var(--accent-soft); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.nav a:hover { background: var(--surface2); color: var(--ink); }
+.nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+
+/* ---- Sign-in ---- */
+.auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  background:
+    radial-gradient(60vw 50vh at 88% -8%, rgba(192,225,242,.5), transparent 60%),
+    radial-gradient(55vw 45vh at 6% 4%, rgba(244,190,185,.42), transparent 60%),
+    radial-gradient(70vw 55vh at 80% 108%, rgba(191,192,223,.38), transparent 60%),
+    var(--bg); }
+.auth-card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px; padding: 28px; box-shadow: 0 18px 50px rgba(14,23,40,.09); }
+.auth-brand { display: flex; align-items: center; gap: 11px; margin-bottom: 22px; }
+.auth-brand .mark { width: 34px; height: 34px; border-radius: 9px; background: var(--grad); color: #0e1728;
+  display: grid; place-items: center; font-weight: 700; font-size: 12px; letter-spacing: -0.02em; }
+.auth-brand .name { font-family: var(--serif); font-size: 21px; line-height: 1; }
+.auth-brand .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.auth-card h1 { font-size: 26px; margin-bottom: 2px; }
+.auth-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.auth-field > span { font-family: var(--display); font-weight: 500; }
+.auth-field input.chip { width: 100%; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.auth-submit { width: 100%; justify-content: center; padding: 11px; margin-top: 4px; font-size: 14px; }
+.auth-foot { margin-top: 16px; text-align: center; font-size: 12.5px; }
+
+/* Signed-in identity + password change, pinned at the very bottom of the sidebar. */
+.whoami { padding: 10px 6px 2px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 7px; }
+.whoami-id { display: flex; flex-direction: column; }
+.whoami-name { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.whoami input.chip { width: 100%; border-radius: 9px; padding: 7px 10px; font-size: 12px; }
+.banner.warn { background: var(--warn-soft); border-color: color-mix(in oklab, var(--warn) 24%, transparent); color: var(--warn); }
+
+/* Operator key control, pinned under the nav. */
+.opkey { margin-top: auto; padding: 12px 6px 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+/* When the operator-key block is absent (learner shell), the identity block takes over
+   pushing itself to the bottom. */
+.nav + .whoami { margin-top: auto; }
+.opkey-state { display: flex; }
+.opkey-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.opkey input.chip { width: 100%; border-radius: 9px; padding: 7px 10px; font-family: var(--mono); font-size: 12px; }
+.side { display: flex; flex-direction: column; }
 
 h1 { font-family: var(--serif); font-size: 30px; font-weight: 400; margin: 0 0 4px; letter-spacing: 0.01em; }
-h2 { font-size: 12px; font-weight: 600; margin: 28px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.09em; }
+h2 { font-family: var(--display); font-size: 12px; font-weight: 600; margin: 28px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.09em; }
 .sub { color: var(--muted); font-size: 13px; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 18px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; cursor: pointer; transition: border-color 0.15s, transform 0.15s; display: block; }
-.card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; cursor: pointer; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; display: block; }
+.card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(14, 23, 40, 0.07); }
+.card.on { border-color: var(--accent); background: var(--accent-soft); }
 .card .label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .card .value { font-size: 26px; font-weight: 500; font-family: var(--mono); margin: 8px 0 2px; }
 .card .hint { font-size: 12px; color: var(--ink2); }
@@ -69,34 +118,52 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 td { padding: 9px 10px; border-bottom: 1px solid var(--line2); }
 tr.row { cursor: pointer; }
-tr.row:hover td { background: var(--surface); }
+tr.row:hover td { background: var(--surface2); }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .num { font-family: var(--mono); text-align: right; }
 th.num { text-align: right; }
 
-.pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 99px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--line); color: var(--ink2); }
-.pill.ok { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 40%, transparent); }
-.pill.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, transparent); }
-.pill.danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 40%, transparent); }
-.pill.info { color: var(--info); border-color: color-mix(in oklab, var(--info) 40%, transparent); }
-.pill.accent { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, transparent); }
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 99px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--line); color: var(--ink2); background: var(--surface2); }
+.pill.ok { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in oklab, var(--ok) 26%, transparent); }
+.pill.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in oklab, var(--warn) 26%, transparent); }
+.pill.danger { color: var(--danger); background: var(--danger-soft); border-color: color-mix(in oklab, var(--danger) 26%, transparent); }
+.pill.info { color: var(--info); background: var(--info-soft); border-color: color-mix(in oklab, var(--info) 26%, transparent); }
+.pill.accent { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in oklab, var(--accent) 30%, transparent); }
 
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
-.panel h3 { margin: 0 0 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; }
-pre.code { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 12px; overflow-x: auto; margin: 0; color: var(--ink2); white-space: pre-wrap; }
+.panel h3 { font-family: var(--display); margin: 0 0 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; }
+pre.code { background: var(--surface2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 12px; overflow-x: auto; margin: 0; color: var(--ink2); white-space: pre-wrap; }
+
+/* Callouts — pastel swatches as flat fills, per the colour guidance. */
+.banner { border-radius: 12px; padding: 11px 14px; margin: 14px 0; font-size: 13px; cursor: pointer; border: 1px solid var(--line); background: var(--surface2); }
+.banner.ok { background: var(--ok-soft); border-color: color-mix(in oklab, var(--ok) 24%, transparent); color: var(--ok); }
+.banner.danger { background: var(--danger-soft); border-color: color-mix(in oklab, var(--danger) 24%, transparent); color: var(--danger); }
+.banner .sub { color: inherit; opacity: 0.7; }
 
 .bar-track { background: var(--surface2); border-radius: 4px; height: 8px; overflow: hidden; }
 .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
 
 .filters { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; align-items: center; }
-.chip { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--ink2); font-size: 12.5px; cursor: pointer; font-family: var(--font); }
-.chip:hover { border-color: var(--accent); color: var(--ink); }
-.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
-.chip:disabled { opacity: 0.4; cursor: default; }
+.chip { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--ink2); font-size: 12.5px; cursor: pointer; font-family: var(--font); }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chip.on:hover { color: var(--accent-ink); }
+.chip:disabled { opacity: 0.45; cursor: default; }
+.chip:disabled:hover { border-color: var(--line); color: var(--ink2); }
 button.chip:active { transform: scale(0.97); }
+.chip.danger-hover:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
 select.chip { appearance: none; }
-input.chip, select.chip { color: var(--ink); }
+input.chip, select.chip { color: var(--ink); background: var(--surface); }
 input.chip::placeholder { color: var(--muted); }
+input.chip:focus-visible, select.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Authoring forms — label above control, two per row on wide screens. */
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 14px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form label > span { font-family: var(--display); font-weight: 500; letter-spacing: 0.01em; }
+.form input.chip, .form select.chip { border-radius: 9px; padding: 8px 11px; font-size: 13px; }
+
+.lesson-row { display: flex; gap: 8px; align-items: center; font-size: 13px; padding: 5px 0; border-top: 1px solid var(--line2); }
 
 .kv { display: grid; grid-template-columns: 160px 1fr; gap: 6px 14px; font-size: 13px; }
 .kv .k { color: var(--muted); }
@@ -104,9 +171,11 @@ input.chip::placeholder { color: var(--muted); }
 .crumb a:hover { color: var(--accent); }
 .link { color: var(--accent); cursor: pointer; }
 .link:hover { text-decoration: underline; }
-.empty { padding: 32px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 14px; margin-top: 14px; }
+.empty { padding: 32px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 14px; margin-top: 14px; background: var(--surface); }
 
-/* ---- WhatsApp-style chat (agent playground) ---- */
+/* ---- WhatsApp-style chat (agent playground) ----
+   Deliberately keeps WhatsApp's own dark palette: this pane is a preview of what the
+   learner sees in WhatsApp, so it should look like WhatsApp, not like the console. */
 .wa { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #0b141a; max-width: 480px; }
 .wa-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #202c33; border-bottom: 1px solid rgba(0,0,0,0.3); }
 .wa-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--grad); color: #0b141a; display: grid; place-items: center; font-weight: 700; font-size: 13px; }
@@ -123,8 +192,8 @@ input.chip::placeholder { color: var(--muted); }
 .wa-msg .t { font-size: 10px; color: #8696a0; float: right; margin: 6px 0 -2px 8px; }
 .wa-meta { display: flex; flex-wrap: wrap; gap: 5px; margin: -2px 0 2px; }
 .wa-meta .m { font-size: 10.5px; padding: 1px 7px; border-radius: 99px; background: rgba(255,255,255,0.06); color: #b7c2c9; }
-.wa-meta .m.bad { color: var(--danger); }
-.wa-meta .m.ok { color: var(--ok); }
+.wa-meta .m.bad { color: #f2a3ac; }
+.wa-meta .m.ok { color: #a7ddc2; }
 .wa-inbar { display: flex; gap: 8px; padding: 10px; background: #202c33; align-items: center; }
 .wa-inbar input { flex: 1; background: #2a3942; border: none; border-radius: 20px; padding: 9px 14px; color: #e9edef; font-family: var(--font); font-size: 13.5px; }
 .wa-inbar input::placeholder { color: #8696a0; }

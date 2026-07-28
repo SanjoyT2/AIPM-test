@@ -120,8 +120,79 @@ export interface CohortRow {
   completed: number; total: number; modules_complete: number; modules_total: number;
   project: { title: string; stakeholder: string; status: string } | null;
 }
+/* ------------------------------------------------------------ accounts + roles */
+
+export const ROLES = ["admin", "coach", "assessor", "learner"] as const;
+export type Role = (typeof ROLES)[number];
+
+/** Mirrors PERMISSIONS in service/src/auth.ts — the server is the authority. */
+export type Permission =
+  | "authorCurriculum" | "manageLearners" | "viewSignups"
+  | "assess" | "configureAgents" | "manageUsers" | "viewOperator";
+
+export interface SessionUser {
+  user_id: string;
+  email: string;
+  name?: string;
+  role: Role;
+  learner_id?: string;
+  must_change_password?: boolean;
+}
+
+export interface AccountRow extends SessionUser {
+  disabled?: boolean;
+  created_at?: string;
+  last_login_at?: string;
+}
+
+/** Plain-English summary of each role, shown when creating an account. */
+export const ROLE_BLURB: Record<Role, string> = {
+  admin: "Everything, plus creating and disabling accounts.",
+  coach: "Curriculum authoring, cohort, journeys, enrollment and the signups roster.",
+  assessor: "Grading, integrity reviews and escalations. Read-only on curriculum.",
+  learner: "Their own journey only — needs a learner_id to scope it to.",
+};
+
+/** The four lesson shapes the Trainer knows how to render. */
+export const LESSON_TYPES = ["micro", "quiz", "roleplay", "task"] as const;
+export type LessonType = (typeof LESSON_TYPES)[number];
+
+export interface Milestone { title: string; definition_of_done: string }
+
+export interface CourseSummary {
+  course_id: string; title: string; outcome: string; status: string; ts?: string;
+}
+export interface LessonRow {
+  lesson_id: string; module_id?: string; order: number; type: LessonType;
+  competency_id: string; title: string; objective: string;
+  key_points?: string[]; difficulty?: string; personalize?: boolean; pass_mark?: number;
+}
+export interface ModuleRow {
+  module_id: string; title: string; order: number;
+  competencies?: string[]; milestone?: Milestone; human_spine?: string;
+  lessons?: LessonRow[];
+}
+export interface CourseDetail extends CourseSummary { modules?: ModuleRow[] }
+
+/** Authoring payloads — what the create forms send. */
+export interface NewModule {
+  title: string; order?: number; competencies?: string[];
+  milestone?: Milestone; human_spine?: string;
+}
+export interface NewLesson {
+  order?: number; type: LessonType; competency_id: string; title: string;
+  objective: string; key_points?: string[]; difficulty?: string;
+  personalize?: boolean; pass_mark?: number;
+}
+
+/** A real registrant from the public landing-page funnel. OTP fields never leave the server. */
+export interface Signup {
+  learner_id: string; phone: string; email?: string; name?: string;
+  status: "pending" | "verified"; created_at: string; verified_at?: string;
+}
+
 export interface Journey {
-  learner_id: string; enrolled: boolean; course_id?: string;
+  learner_id: string; enrolled: boolean; course_id?: string; course_title?: string;
   completed?: number; total?: number;
   next_lesson?: { lesson_id: string; title: string; type: string; module: string } | null;
   project?: { title: string; stakeholder: string; problem: string; success_metric: string; status: string } | null;

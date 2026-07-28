@@ -8,6 +8,7 @@
  */
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import type { Db, Collection } from "mongodb";
+import { settings } from "./settings.js";
 import type { WaClient } from "./wa-client.js";
 
 export interface Learner {
@@ -77,7 +78,7 @@ export class Signups {
     return { learner_id: l.learner_id, phone: l.phone, email: l.email, name: l.name, status: l.status };
   }
 
-  async startSignup(input: { name?: string; phone: string; email: string }): Promise<{ ok: boolean; error?: string; sent?: string; dev_otp?: string }> {
+  async startSignup(input: { name?: string; phone: string; email: string }): Promise<{ ok: boolean; error?: string; detail?: string; sent?: string; dev_otp?: string }> {
     const phone = normalizePhone(input.phone);
     if (!phone) return { ok: false, error: "Enter a valid phone number." };
     if (!validEmail(input.email)) return { ok: false, error: "Enter a valid email." };
@@ -98,9 +99,38 @@ export class Signups {
     };
     await this.put(learner);
 
+    /*
+     * Delivery. WhatsApp only permits free-form text inside the 24h window that the
+     * *learner* opens by messaging us first — which, at signup, has never happened.
+     * So a first-contact OTP has to go out as an approved template. sendText is kept
+     * only as a fallback for stub mode and for numbers already inside a live window.
+     */
     const body = `Your Degree2Destiny verification code is ${otp}. It expires in 10 minutes.`;
-    const res = await this.wa.sendText(phone, body);
-    return { ok: true, sent: res.stub ? "stub" : "whatsapp", ...(res.stub ? { dev_otp: otp } : {}) };
+    const template = settings.wa.otpTemplate;
+    const res = template
+      ? await this.wa.sendTemplate(phone, template, {
+          language: settings.wa.otpTemplateLang,
+          // Common 11za shapes for the template's variable slot. Harmless extras are
+          // ignored by the API; this avoids a redeploy while the mapping is confirmed.
+          extra: { otp, code: otp, var1: otp, bodyValues: [otp] },
+        })
+      : await this.wa.sendText(phone, body);
+
+    if (res.stub) return { ok: true, sent: "stub", dev_otp: otp };
+
+    /*
+     * Previously this returned ok:true regardless, so a rejected send looked like a
+     * successful signup and the learner sat waiting for a code that never came.
+     * Report the failure instead — but keep the record, so a resend can succeed.
+     */
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: "We couldn't send your WhatsApp code just now. Please try again in a moment.",
+        detail: res.detail,
+      };
+    }
+    return { ok: true, sent: template ? "whatsapp:template" : "whatsapp:text" };
   }
 
   async verify(rawPhone: string, otp: string): Promise<{ ok: boolean; error?: string; learner?: ReturnType<Signups["publicView"]> }> {
@@ -117,6 +147,28 @@ export class Signups {
     const verified: Learner = { ...l, status: "verified", verified_at: new Date().toISOString(), otp_hash: undefined, otp_expires: undefined };
     await this.put(verified);
     return { ok: true, learner: this.publicView(verified) };
+  }
+
+  /**
+   * The operator's roster of real registrants, newest first. OTP material is stripped
+   * — a live hash plus its expiry is enough to finish someone else's verification.
+   */
+  async list(limit = 500): Promise<Omit<Learner, "otp_hash" | "otp_expires" | "otp_sent_at">[]> {
+    const strip = (l: Learner) => {
+      const { otp_hash: _h, otp_expires: _e, otp_sent_at: _s, ...safe } = l;
+      return safe;
+    };
+    if (this.col) {
+      const docs = await this.col.find({}).sort({ created_at: -1 }).limit(limit).toArray();
+      return docs.map((d) => {
+        const { _id: _drop, ...l } = d as any;
+        return strip(l as Learner);
+      });
+    }
+    return [...this.mem.values()]
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .slice(0, limit)
+      .map(strip);
   }
 
   async count(): Promise<{ verified: number; pending: number }> {
