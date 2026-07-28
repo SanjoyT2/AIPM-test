@@ -16,3 +16,16 @@ jobs:
         run: |
           curl -fsS -X POST -H "x-operator-key: ${OPERATOR_KEY}" \
             https://d2d.college2career.app/api/onboarding/refresh | python3 -m json.tool
+
+      # Token sanity: call 11za's template-list endpoint directly. Prints only the
+      # response body (template names / an error message) — never the token itself.
+      - name: Probe 11za directly with WA_API_TOKEN
+        env:
+          WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
+          WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
+        run: |
+          echo "token length: ${#WA_API_TOKEN}"
+          curl -sS -X POST https://api.11za.in/apis/template/getTemplates \
+            -H "Content-Type: application/json" \
+            -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\",\"limit\":10,\"page\":1,\"search\":\"\"}" \
+            | head -c 2000; echo
