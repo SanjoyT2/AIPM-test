@@ -44,6 +44,35 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
+/* ---------------------------------------------- learner magic-link web view */
+
+const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** Tiny self-contained page in the landing-page's visual family — no SPA, no login. */
+function journeyPage(title: string, body: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} — Degree2Destiny</title><style>
+:root{--ink:#0e1728;--ink2:#414a63;--muted:#7b8299;--cream:#fbf8f3;--line:rgba(14,23,40,.10);--accent:#6a5fd0;
+--grad:linear-gradient(120deg,#f4beb9,#e5c0d9 26%,#bfc0df 52%,#c0e1f2 78%,#d6eade)}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--cream);color:var(--ink);line-height:1.6}
+.wrap{max-width:640px;margin:0 auto;padding:24px 20px 60px}
+.brand{display:flex;gap:10px;align-items:center;margin-bottom:26px}
+.mark{width:32px;height:32px;border-radius:8px;background:var(--grad);display:grid;place-items:center;font-weight:700;font-size:11px}
+h1{font-size:26px;margin:0 0 18px}h2{font-size:20px;margin:0 0 2px}
+.mods{list-style:none;padding:0;margin:0 0 22px}
+.mods li{display:flex;justify-content:space-between;padding:10px 14px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;background:#fff}
+.mods li.done{opacity:.55}.mods li.done span:first-child::before{content:"✓ ";color:var(--accent)}
+.count{color:var(--muted);font-size:13px}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 14px 40px -20px rgba(14,23,40,.25)}
+.cap{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:6px}
+.mod{font-size:13px;color:var(--muted);margin-bottom:12px}.body{font-size:15px;color:var(--ink2)}
+.muted{color:var(--muted)}.foot{font-size:13px;margin-top:22px;text-align:center}
+</style></head><body><div class="wrap">
+<div class="brand"><div class="mark">D2D</div><b>Degree2Destiny</b></div>
+<h1>${title}</h1>${body}</div></body></html>`;
+}
+
 const presentedOperatorKey = (req: any) => ((req.headers["x-operator-key"] ?? "") as string);
 /** The non-interactive path: scripts, CI and curl authenticate with the shared key. */
 const operatorKeyValid = (req: any) =>
@@ -111,7 +140,13 @@ async function main() {
   onboarding.bindStore(signups);
   const lms = new LmsStore();
   await lms.init(ledger.getPool());
-  const learning = new LearningEngine(lms, evidence, gateway, dailyLoop, frameworks.versions.competency_framework);
+  const learning = new LearningEngine(
+    lms, evidence, gateway, dailyLoop, frameworks.versions.competency_framework,
+    async (learnerId) => {
+      const token = await signups.mintJourneyToken(learnerId);
+      return token ? `${settings.publicBaseUrl}/l/${token}` : null;
+    },
+  );
   const auth = new Auth();
   await auth.init(ledger.getPool());
 
@@ -350,6 +385,35 @@ async function main() {
     return reply.code(r.ok ? 200 : 400).send(r);
   });
   app.get("/api/signup/stats", async () => signups.count());
+
+  // ---- Learner web view via magic link (no password — the token IS the credential) ----
+  app.get("/l/:token", async (req, reply) => {
+    const { token } = req.params as { token: string };
+    const learner = await signups.resolveJourneyToken(token);
+    if (!learner) {
+      return reply.code(404).type("text/html").send(journeyPage("Link expired", `<p class="muted">This link is no longer valid. Send us any message on WhatsApp and you'll get a fresh one with your next lesson.</p>`));
+    }
+    const enr = await lms.activeEnrollment(learner.learner_id);
+    if (!enr) {
+      return reply.type("text/html").send(journeyPage(`Namaste${learner.name ? " " + esc(learner.name.split(/\s+/)[0]) : ""}!`, `<p class="muted">Your journey hasn't started yet. Reply <b>START</b> on WhatsApp to begin your first course.</p>`));
+    }
+    const course = await lms.getCourse(enr.course_id);
+    const mods = await lms.moduleProgress(learner.learner_id, enr.course_id);
+    const p = await lms.getProgress(learner.learner_id, enr.course_id);
+
+    const modList = mods.map((m) =>
+      `<li class="${m.complete ? "done" : ""}"><span>${esc(m.module.title)}</span><span class="count">${m.done}/${m.total}</span></li>`,
+    ).join("");
+    const lesson = p.last_rendered
+      ? `<div class="card"><div class="cap">${p.awaiting_lesson_id === p.last_rendered.lesson_id ? "Awaiting your answer on WhatsApp" : "Latest lesson"}</div>
+         <h2>${esc(p.last_rendered.title)}</h2><div class="mod">${esc(p.last_rendered.module_title)}</div>
+         <div class="body">${esc(p.last_rendered.body).replace(/\*([^*\n]+)\*/g, "<b>$1</b>").replace(/_([^_\n]+)_/g, "<i>$1</i>").replace(/\n/g, "<br>")}</div></div>`
+      : `<p class="muted">Your next lesson arrives on WhatsApp — reply START.</p>`;
+    return reply.type("text/html").send(journeyPage(
+      esc(course?.title ?? "Your course"),
+      `<ul class="mods">${modList}</ul>${lesson}<p class="muted foot">Everything happens on WhatsApp — this page is your progress mirror. 📱</p>`,
+    ));
+  });
   // The operator's roster of real registrants. Gated: this is learner PII (phone, email),
   // unlike /api/signup/stats which is only a count.
   app.get("/api/signups", async (req, reply) => {
@@ -365,6 +429,60 @@ async function main() {
     const { title, outcome } = (req.body ?? {}) as { title?: string; outcome?: string };
     if (!title) return reply.code(400).send({ error: "title is required" });
     return reply.code(201).send(await lms.createCourse(title, outcome ?? ""));
+  });
+
+  /*
+   * Coach drafts a whole course from an operator brief. ALWAYS lands as a draft —
+   * publishing stays a human decision (the Advisor auto-enrolls real learners from
+   * the published catalog, so nothing AI-authored goes live without operator review).
+   */
+  app.post("/api/courses/draft", async (req, reply) => {
+    if (await deny(req, reply, "authorCurriculum")) return;
+    const { brief } = (req.body ?? {}) as { brief?: string };
+    if (!brief?.trim()) return reply.code(400).send({ error: "brief is required" });
+
+    const compIds = (frameworks.competencyFramework?.levels ?? [])
+      .flatMap((l: any) => (l.competencies ?? []).map((c: any) => `${c.id} (${c.name})`));
+    const res = await gateway.complete({
+      tier: "deep", role: "actor", maxTokens: 4000,
+      system: `${agents.coach?.systemPrompt ?? "You are the Coach."}\n\n# Authoring mode\nYou are drafting a COURSE for the operator to review. Return STRICT JSON only (no fences, no prose):\n{"title":"...","outcome":"one line","modules":[{"title":"...","competencies":["<framework id>"],"milestone":{"title":"...","definition_of_done":"..."},"human_spine":"one line on the human/stakeholder thread","lessons":[{"type":"micro"|"quiz"|"task"|"roleplay","title":"...","objective":"one line","key_points":["..."],"difficulty":"intro"|"core"|"stretch","competency_id":"<framework id>","pass_mark":60}]}]}\nRules: 3-5 modules, 3-6 lessons each, every module ends with a non-micro assessment lesson. competency_id MUST be one of the framework ids below.\n\n# Framework competencies\n${compIds.join("\n")}`,
+      user: brief,
+    });
+
+    let draft: any;
+    try {
+      const raw = res.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      draft = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? raw);
+    } catch {
+      return reply.code(502).send({ error: "Coach returned unparseable course JSON — try rephrasing the brief.", raw: res.text.slice(0, 500) });
+    }
+    if (!draft?.title || !Array.isArray(draft.modules) || !draft.modules.length) {
+      return reply.code(502).send({ error: "Coach draft is missing title or modules — try a more specific brief." });
+    }
+
+    const course = await lms.createCourse(String(draft.title), String(draft.outcome ?? ""));
+    let lessons = 0;
+    for (const [mi, m] of draft.modules.entries()) {
+      const mod = await lms.addModule(course.course_id, String(m.title ?? `Module ${mi + 1}`), mi + 1,
+        Array.isArray(m.competencies) ? m.competencies.map(String) : [],
+        { milestone: m.milestone, human_spine: m.human_spine });
+      for (const [li, l] of (Array.isArray(m.lessons) ? m.lessons : []).entries()) {
+        await lms.addLesson(mod.module_id, {
+          order: li + 1,
+          type: ["micro", "quiz", "task", "roleplay"].includes(l.type) ? l.type : "micro",
+          competency_id: String(l.competency_id ?? ""),
+          title: String(l.title ?? `Lesson ${li + 1}`),
+          objective: String(l.objective ?? ""),
+          key_points: Array.isArray(l.key_points) ? l.key_points.map(String) : [],
+          difficulty: ["intro", "core", "stretch"].includes(l.difficulty) ? l.difficulty : "core",
+          personalize: true,
+          pass_mark: Number(l.pass_mark) || 60,
+        });
+        lessons++;
+      }
+    }
+    req.log.info(`coach drafted course "${course.title}" (${draft.modules.length} modules, ${lessons} lessons) — status: draft`);
+    return reply.code(201).send({ course, modules: draft.modules.length, lessons, cost_usd: res.call.usd });
   });
   app.get("/api/courses/:id", async (req, reply) => {
     const { id } = req.params as { id: string };

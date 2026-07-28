@@ -25,7 +25,13 @@ export interface Lesson {
   ts: string;
 }
 export interface Enrollment { enrollment_id: string; learner_id: string; course_id: string; status: "active" | "completed"; started_at: string; ts: string; }
-export interface Progress { id: string; learner_id: string; course_id: string; completed: string[]; awaiting_lesson_id: string | null; awaiting_item?: string; updated_at: string; }
+export interface Progress {
+  id: string; learner_id: string; course_id: string;
+  completed: string[]; awaiting_lesson_id: string | null; awaiting_item?: string;
+  /** The personalized content most recently served on WhatsApp — what the web view shows. */
+  last_rendered?: { lesson_id: string; title: string; module_title: string; body: string; at: string };
+  updated_at: string;
+}
 
 /** A resolved journey step: a lesson with its module context. */
 export interface JourneyStep extends Lesson { module_title: string; }

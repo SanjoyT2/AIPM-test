@@ -60,6 +60,9 @@ export const settings = {
     otpTemplateLang: process.env.WA_OTP_TEMPLATE_LANG ?? "en",
   },
 
+  /** Public origin for links sent to learners on WhatsApp (magic journey links). */
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "https://d2d.college2career.app").replace(/\/$/, ""),
+
   /** The editable frameworks (YAML) + their JSON Schemas. */
   configDir: process.env.D2D_CONFIG_DIR ?? path.join(repoRoot, "d2d", "config"),
   schemaDir: process.env.D2D_SCHEMA_DIR ?? path.join(repoRoot, "d2d", "schema"),

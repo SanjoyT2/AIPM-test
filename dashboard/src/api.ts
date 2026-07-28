@@ -67,6 +67,8 @@ export const api = {
   // Authoring (operator-gated): course -> modules -> lessons
   createCourse: (title: string, outcome: string) =>
     opPost<CourseSummary>("/api/courses", { title, outcome }),
+  draftCourseWithCoach: (brief: string) =>
+    opPost<{ course: CourseSummary; modules: number; lessons: number; cost_usd: number }>("/api/courses/draft", { brief }),
   setCourseStatus: (id: string, status: "published" | "draft") =>
     opPost<{ ok: boolean; status: string }>(`/api/courses/${encodeURIComponent(id)}/publish`, { status }),
   addModule: (courseId: string, m: NewModule) =>

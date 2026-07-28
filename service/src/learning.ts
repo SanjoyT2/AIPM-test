@@ -41,7 +41,19 @@ export class LearningEngine {
     private gateway: LlmGateway,
     private dailyLoop: DailyLoop,
     private frameworkVersion: string,
+    /** Mints the learner's magic web-view link (null => no link line in replies). */
+    private journeyLink?: (learnerId: string) => Promise<string | null>,
   ) {}
+
+  /** "🔗 Dekho online: <link>" trailer for WhatsApp replies; empty when unavailable. */
+  private async linkLine(learnerId: string): Promise<string> {
+    try {
+      const url = await this.journeyLink?.(learnerId);
+      return url ? `\n\n🔗 View your journey: ${url}` : "";
+    } catch {
+      return "";
+    }
+  }
 
   async onMessage(learnerId: string, text: string): Promise<WalkResult> {
     let enr = await this.lms.activeEnrollment(learnerId);
@@ -91,15 +103,21 @@ export class LearningEngine {
     if (step.type === "micro") {
       const body = await this.renderMicro(learnerId, step);
       const p = await this.lms.getProgress(learnerId, courseId);
-      p.completed.push(step.lesson_id); await this.lms.saveProgress(p);
-      return { reply: `📖 *${step.title}*  ·  _${step.module_title}_\n\n${body}\n\n_Send anything to continue._`, course_id: courseId, served_lesson_id: step.lesson_id };
+      p.completed.push(step.lesson_id);
+      p.last_rendered = { lesson_id: step.lesson_id, title: step.title, module_title: step.module_title, body, at: new Date().toISOString() };
+      await this.lms.saveProgress(p);
+      const link = await this.linkLine(learnerId);
+      return { reply: `📖 *${step.title}*  ·  _${step.module_title}_\n\n${body}\n\n_Send anything to continue._${link}`, course_id: courseId, served_lesson_id: step.lesson_id };
     }
     // Personalized assessment: the Assessor agent generates the item for THIS learner.
     const item = await this.generateItem(learnerId, step);
     const p = await this.lms.getProgress(learnerId, courseId);
-    p.awaiting_lesson_id = step.lesson_id; p.awaiting_item = item; await this.lms.saveProgress(p);
+    p.awaiting_lesson_id = step.lesson_id; p.awaiting_item = item;
+    p.last_rendered = { lesson_id: step.lesson_id, title: step.title, module_title: step.module_title, body: item, at: new Date().toISOString() };
+    await this.lms.saveProgress(p);
     const lead = step.type === "roleplay" ? "🎭 *Role-play*" : step.type === "task" ? "🛠️ *Task*" : "❓ *Quiz*";
-    return { reply: `${lead} — ${step.title}\n\n${item}\n\n_Reply with your answer._`, course_id: courseId, served_lesson_id: step.lesson_id };
+    const link = await this.linkLine(learnerId);
+    return { reply: `${lead} — ${step.title}\n\n${item}\n\n_Reply with your answer._${link}`, course_id: courseId, served_lesson_id: step.lesson_id };
   }
 
   /** Assessor renders a personalized assessment item from the lesson brief. */

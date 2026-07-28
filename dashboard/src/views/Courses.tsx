@@ -49,6 +49,13 @@ export default function Courses() {
       {err && <div className="banner danger" onClick={() => setErr(null)}>⚠︎ {err} <span className="sub">(click to dismiss)</span></div>}
 
       <NewCourse busy={busy} onCreate={(t, o) => run(() => api.createCourse(t, o), () => reloadCourses())} />
+      <DraftWithCoach
+        busy={busy}
+        onDraft={(brief, done) => run(
+          async () => { const r = await api.draftCourseWithCoach(brief); done(r); },
+          () => reloadCourses(),
+        )}
+      />
 
       {courses.length === 0 ? <Empty>No courses yet. Create the first one above.</Empty> : (
         <div className="cards">
@@ -137,6 +144,54 @@ function NewCourse({ busy, onCreate }: { busy: boolean; onCreate: (title: string
           onClick={() => { onCreate(title.trim(), outcome.trim()); setTitle(""); setOutcome(""); setShow(false); }}
         >
           Create course
+        </button>
+        <button className="chip" onClick={() => setShow(false)}>Cancel</button>
+      </div>
+    </Panel>
+  );
+}
+
+/* --------------------------------------------------------- draft with coach */
+
+/**
+ * The Coach drafts a full course (modules, milestones, lesson briefs) from a one-
+ * paragraph brief. It always lands as a DRAFT — publishing stays a human decision.
+ */
+function DraftWithCoach({ busy, onDraft }: { busy: boolean; onDraft: (brief: string, done: (r: { modules: number; lessons: number }) => void) => void }) {
+  const [show, setShow] = useState(false);
+  const [brief, setBrief] = useState("");
+  const [result, setResult] = useState<string | null>(null);
+
+  if (!show) return (
+    <div className="filters">
+      <button className="chip" onClick={() => setShow(true)}>✨ Draft with Coach</button>
+      {result && <span className="hint">{result}</span>}
+    </div>
+  );
+
+  return (
+    <Panel title="Draft a course with the Coach">
+      <div className="hint" style={{ marginBottom: 10 }}>
+        Describe the course in a paragraph — audience, outcome, rough scope. The Coach drafts the full
+        structure (modules, milestones, lesson briefs) as a <b>draft</b> for you to review, edit and publish.
+      </div>
+      <textarea
+        className="chip"
+        style={{ width: "100%", minHeight: 96, resize: "vertical", fontFamily: "inherit" }}
+        value={brief}
+        onChange={(e) => setBrief(e.target.value)}
+        placeholder="e.g. A 4-week course teaching commerce graduates to run WhatsApp-based customer support with AI for small retailers — ends with them handling a live pilot."
+      />
+      <div className="filters" style={{ marginTop: 10 }}>
+        <button
+          className="chip on"
+          disabled={busy || brief.trim().length < 20}
+          onClick={() => onDraft(brief.trim(), (r) => {
+            setResult(`Coach drafted ${r.modules} modules / ${r.lessons} lessons — review below, then publish.`);
+            setBrief(""); setShow(false);
+          })}
+        >
+          {busy ? "Coach is drafting…" : "Draft course"}
         </button>
         <button className="chip" onClick={() => setShow(false)}>Cancel</button>
       </div>

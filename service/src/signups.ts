@@ -6,7 +6,7 @@
  *   POST /api/signup        {name?, phone, email} -> create pending learner, send 6-digit OTP to WhatsApp
  *   POST /api/signup/verify {phone, otp}          -> verify -> learner becomes 'verified'
  */
-import { createHash, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { Db, Collection } from "mongodb";
 import type { Onboarding } from "./onboarding.js";
 
@@ -22,6 +22,9 @@ export interface Learner {
   otp_expires?: number;
   otp_sent_at?: number;
   kyc?: LearnerKyc;
+  /** Magic-link auth for the learner web view — the token IS the credential. */
+  journey_token?: string;
+  journey_token_expires?: number;
 }
 
 /**
@@ -65,6 +68,7 @@ export class Signups {
     this.col = db.collection("learners");
     await this.col.createIndex({ phone: 1 }, { unique: true });
     await this.col.createIndex({ status: 1 });
+    await this.col.createIndex({ journey_token: 1 }, { sparse: true });
   }
 
   private async get(phone: string): Promise<Learner | null> {
@@ -161,6 +165,37 @@ export class Signups {
     return this.get(phone);
   }
 
+  /**
+   * Magic journey link: mint (or reuse) the learner's web-view token. 30-day
+   * validity, refreshed on each mint — every lesson message carries the link, so an
+   * active learner's token never lapses mid-course.
+   */
+  async mintJourneyToken(learnerId: string): Promise<string | null> {
+    const l = await this.getByLearnerId(learnerId);
+    if (!l) return null;
+    const THIRTY_D = 30 * 24 * 60 * 60 * 1000;
+    if (!l.journey_token || (l.journey_token_expires ?? 0) < Date.now() + THIRTY_D / 2) {
+      l.journey_token = l.journey_token ?? randomBytes(24).toString("base64url");
+      l.journey_token_expires = Date.now() + THIRTY_D;
+      await this.put(l);
+    }
+    return l.journey_token;
+  }
+
+  /** Resolve a magic-link token to its learner. Expired or unknown => null. */
+  async resolveJourneyToken(token: string): Promise<Learner | null> {
+    if (!token || token.length < 20) return null;
+    let l: Learner | null = null;
+    if (this.col) {
+      const d = await this.col.findOne({ journey_token: token });
+      if (d) { const { _id, ...rest } = d as any; l = rest as Learner; }
+    } else {
+      l = [...this.mem.values()].find((x) => x.journey_token === token) ?? null;
+    }
+    if (!l || (l.journey_token_expires ?? 0) < Date.now()) return null;
+    return l;
+  }
+
   /** Merge document-verification results onto the learner (Onboarding agent only). */
   async applyKyc(learnerId: string, patch: LearnerKyc): Promise<boolean> {
     const l = await this.getByLearnerId(learnerId);
@@ -171,12 +206,12 @@ export class Signups {
   }
 
   /**
-   * The operator's roster of real registrants, newest first. OTP material is stripped
-   * — a live hash plus its expiry is enough to finish someone else's verification.
+   * The operator's roster of real registrants, newest first. OTP material and the
+   * journey token are stripped — both are live credentials, not roster data.
    */
-  async list(limit = 500): Promise<Omit<Learner, "otp_hash" | "otp_expires" | "otp_sent_at">[]> {
+  async list(limit = 500): Promise<Omit<Learner, "otp_hash" | "otp_expires" | "otp_sent_at" | "journey_token" | "journey_token_expires">[]> {
     const strip = (l: Learner) => {
-      const { otp_hash: _h, otp_expires: _e, otp_sent_at: _s, ...safe } = l;
+      const { otp_hash: _h, otp_expires: _e, otp_sent_at: _s, journey_token: _t, journey_token_expires: _te, ...safe } = l;
       return safe;
     };
     if (this.col) {
