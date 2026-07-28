@@ -22,6 +22,7 @@ import { Executor } from "./executor.js";
 import { LlmGateway } from "./gateway.js";
 import { Ledger } from "./ledger.js";
 import { MeasurementEngine } from "./measurement.js";
+import { Onboarding } from "./onboarding.js";
 import { OperatorActionStore } from "./operator-actions.js";
 import { ResourceStore } from "./resource-store.js";
 import { settings } from "./settings.js";
@@ -101,7 +102,11 @@ async function main() {
     console.info(`[wa] 11za outbound live — base=${settings.wa.apiBase}`);
   }
   const dailyLoop = new DailyLoop(executor, agents, frameworks, wa, resources);
-  const signups = new Signups(wa);
+  const onboarding = new Onboarding(wa);
+  // Discover the OTP template up front so /api/health is honest from the first probe.
+  // Never blocks boot: an 11za outage must not take the whole service down.
+  onboarding.refresh().catch((e) => console.warn(`[onboarding] initial template discovery failed: ${e}`));
+  const signups = new Signups(onboarding);
   await signups.init(ledger.getPool());
   const lms = new LmsStore();
   await lms.init(ledger.getPool());
@@ -314,8 +319,21 @@ async function main() {
     storage: ledger.storage,
     gateway: gateway.stubMode ? "stub" : "live",
     whatsapp: wa.stubMode ? "stub" : "live",
+    otp_delivery: onboarding.healthState(),
     framework_versions: frameworks.versions,
   }));
+
+  // ---- Onboarding agent: OTP template discovery + funnel status (operator-only) ----
+  app.get("/api/onboarding/status", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    return onboarding.status();
+  });
+  // Re-discover on demand — e.g. right after the operator gets a template approved.
+  app.post("/api/onboarding/refresh", async (req, reply) => {
+    if (await deny(req, reply, "configureAgents")) return;
+    await onboarding.refresh();
+    return onboarding.status();
+  });
 
   // ---- Public signup (landing page) — WhatsApp OTP onboarding ----
   app.post("/api/signup", async (req, reply) => {

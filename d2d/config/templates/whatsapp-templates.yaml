@@ -19,6 +19,16 @@ defaults:
   category: UTILITY        # UTILITY (course/service) vs MARKETING — affects approval + cost
 
 templates:
+  # ---- Signup OTP (first contact — no window exists yet, template is mandatory) ----
+  # The Onboarding agent discovers this from the 11za account at runtime and maps the
+  # {{1}} slot to the code. AUTHENTICATION category: fastest Meta approval, lowest cost.
+  - name: signup_otp
+    status: draft
+    category: AUTHENTICATION
+    language: en
+    trigger: public_signup
+    body_en: "{{1}} is your Degree2Destiny verification code. It expires in 10 minutes."
+
   # ---- Daily start nudge (only if learner hasn't self-initiated by cutoff) ----
   - name: daily_start_nudge
     status: draft

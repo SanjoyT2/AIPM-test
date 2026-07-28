@@ -83,6 +83,8 @@ jobs:
           WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
           WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
           WA_WEBHOOK_SECRET: ${{ secrets.WA_WEBHOOK_SECRET }}
+          WA_OTP_TEMPLATE: ${{ vars.WA_OTP_TEMPLATE }}
+          WA_OTP_TEMPLATE_LANG: ${{ vars.WA_OTP_TEMPLATE_LANG }}
           MODEL_FAST: ${{ vars.MODEL_FAST }}
           MODEL_DEEP: ${{ vars.MODEL_DEEP }}
         run: |
@@ -98,6 +100,9 @@ jobs:
             printf 'WA_API_TOKEN=%s\n'      "$WA_API_TOKEN"
             printf 'WA_ORIGIN_WEBSITE=%s\n' "$WA_ORIGIN_WEBSITE"
             printf 'WA_WEBHOOK_SECRET=%s\n' "$WA_WEBHOOK_SECRET"
+            # Optional pin; empty means the Onboarding agent auto-discovers the template.
+            printf 'WA_OTP_TEMPLATE=%s\n'      "$WA_OTP_TEMPLATE"
+            printf 'WA_OTP_TEMPLATE_LANG=%s\n' "${WA_OTP_TEMPLATE_LANG:-en}"
             printf 'MODEL_FAST=%s\n'        "${MODEL_FAST:-gpt-4o-mini}"
             printf 'MODEL_DEEP=%s\n'        "${MODEL_DEEP:-gpt-4o}"
           } > env.prod

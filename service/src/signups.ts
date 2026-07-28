@@ -8,8 +8,7 @@
  */
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import type { Db, Collection } from "mongodb";
-import { settings } from "./settings.js";
-import type { WaClient } from "./wa-client.js";
+import type { Onboarding } from "./onboarding.js";
 
 export interface Learner {
   learner_id: string;
@@ -42,7 +41,7 @@ export class Signups {
   private col: Collection | null = null;
   private mem = new Map<string, Learner>(); // keyed by phone
 
-  constructor(private wa: WaClient) {}
+  constructor(private onboarding: Onboarding) {}
 
   async init(db: Db | null): Promise<void> {
     if (!db) return;
@@ -100,21 +99,11 @@ export class Signups {
     await this.put(learner);
 
     /*
-     * Delivery. WhatsApp only permits free-form text inside the 24h window that the
-     * *learner* opens by messaging us first — which, at signup, has never happened.
-     * So a first-contact OTP has to go out as an approved template. sendText is kept
-     * only as a fallback for stub mode and for numbers already inside a live window.
+     * Delivery is the Onboarding agent's job: it resolves the approved 11za template
+     * at runtime, fills its variable slots, and only falls back to session text when
+     * the learner's 24h window is genuinely open.
      */
-    const body = `Your Degree2Destiny verification code is ${otp}. It expires in 10 minutes.`;
-    const template = settings.wa.otpTemplate;
-    const res = template
-      ? await this.wa.sendTemplate(phone, template, {
-          language: settings.wa.otpTemplateLang,
-          // Common 11za shapes for the template's variable slot. Harmless extras are
-          // ignored by the API; this avoids a redeploy while the mapping is confirmed.
-          extra: { otp, code: otp, var1: otp, bodyValues: [otp] },
-        })
-      : await this.wa.sendText(phone, body);
+    const res = await this.onboarding.sendOtp(phone, otp, learner.name);
 
     if (res.stub) return { ok: true, sent: "stub", dev_otp: otp };
 
@@ -130,7 +119,7 @@ export class Signups {
         detail: res.detail,
       };
     }
-    return { ok: true, sent: template ? "whatsapp:template" : "whatsapp:text" };
+    return { ok: true, sent: res.via ?? "whatsapp" };
   }
 
   async verify(rawPhone: string, otp: string): Promise<{ ok: boolean; error?: string; learner?: ReturnType<Signups["publicView"]> }> {

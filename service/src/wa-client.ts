@@ -52,7 +52,14 @@ export class WaClient {
         body: JSON.stringify({ ...body, authToken: this.token, originWebsite: this.origin }),
       });
       const text = await res.text();
-      return { ok: res.ok, stub: false, status: res.status, detail: text.slice(0, 300) };
+      // 11za reports failures in the body ({IsSuccess:false, Status:400}) and does not
+      // always mirror them in the HTTP status — trust the body when it parses.
+      let ok = res.ok;
+      try {
+        const j = JSON.parse(text);
+        if (typeof j.IsSuccess === "boolean") ok = j.IsSuccess;
+      } catch { /* non-JSON body — fall back to the HTTP status */ }
+      return { ok, stub: false, status: res.status, detail: text.slice(0, 300) };
     } catch (e) {
       return { ok: false, stub: false, detail: (e as Error).message };
     }
@@ -68,18 +75,51 @@ export class WaClient {
    * is the *only* reliable way to reach someone who has not messaged us first (signup
    * OTPs, re-engagement nudges).
    *
-   * `extra` is passed through untouched: 11za's variable fields differ per account and
-   * template, so the mapping belongs in configuration rather than baked in here.
+   * Body variables go in `data`, one array element per {{n}} placeholder, in order —
+   * that is 11za's documented shape (sendTemplate accepts `data: ["v1", "v2"]`).
    */
   sendTemplate(
     sendto: string,
     templateName: string,
-    opts: { language?: string; name?: string; extra?: Record<string, unknown> } = {},
+    opts: { language?: string; name?: string; data?: string[]; extra?: Record<string, unknown> } = {},
   ): Promise<WaSendResult> {
     return this.post("/apis/template/sendTemplate", {
       sendto, templateName, language: opts.language ?? "en", name: opts.name ?? "",
+      ...(opts.data?.length ? { data: opts.data } : {}),
       ...(opts.extra ?? {}),
     });
+  }
+
+  /**
+   * The account's template catalog as Meta last approved it. 11za offers three read
+   * endpoints; getTemplatesAll returns full records, getTemp adds the {{n}} variable
+   * count. There is NO create/update API — templates are authored and submitted for
+   * Meta approval in the 11za dashboard only. Returns null on any failure so callers
+   * degrade to "unknown" rather than crash the funnel.
+   */
+  async listTemplates(search = "", limit = 100, page = 1): Promise<any[] | null> {
+    return this.fetchTemplateList("/apis/template/getTemplatesAll", { search, limit, page });
+  }
+
+  /** Same catalog via the variable-count endpoint ("getTemp"), when it differs. */
+  async listTemplateVarCounts(search = "", limit = 100, page = 1): Promise<any[] | null> {
+    return this.fetchTemplateList("/apis/template/getTemp", { search, limit, page });
+  }
+
+  /** post() truncates bodies for logging; list responses need the full JSON. */
+  private async fetchTemplateList(path: string, body: Record<string, unknown>): Promise<any[] | null> {
+    if (this.stubMode) return null;
+    try {
+      const res = await fetch(`${this.base}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, authToken: this.token, originWebsite: this.origin }),
+      });
+      if (!res.ok) return null;
+      return parseTemplateList(await res.text());
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -100,5 +140,20 @@ export class WaClient {
     } catch {
       return null;
     }
+  }
+}
+
+/**
+ * The list endpoints' envelope isn't publicly documented, so accept the shapes 11za
+ * uses elsewhere ({Data: [...]}, {data: [...]}, or a bare array) and give back the
+ * raw records for the caller to interpret.
+ */
+function parseTemplateList(text: string): any[] | null {
+  try {
+    const j = JSON.parse(text);
+    const list = Array.isArray(j) ? j : j.Data ?? j.data ?? j.templates ?? j.result ?? null;
+    return Array.isArray(list) ? list : null;
+  } catch {
+    return null;
   }
 }
