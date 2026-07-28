@@ -24,8 +24,10 @@ jobs:
           WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
           WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
         run: |
-          echo "token length: ${#WA_API_TOKEN}"
-          curl -sS -X POST https://api.11za.in/apis/template/getTemplates \
-            -H "Content-Type: application/json" \
-            -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\",\"limit\":10,\"page\":1,\"search\":\"\"}" \
-            | head -c 2000; echo
+          for ep in getTemplates getTemplatesAll getTemp; do
+            echo "==== $ep ===="
+            curl -sS -X POST "https://api.11za.in/apis/template/${ep}" \
+              -H "Content-Type: application/json" \
+              -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\",\"limit\":10,\"page\":1,\"search\":\"\"}" \
+              | head -c 3000; echo
+          done
