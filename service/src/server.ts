@@ -356,6 +356,7 @@ async function main() {
     gateway: gateway.stubMode ? "stub" : "live",
     whatsapp: wa.stubMode ? "stub" : "live",
     otp_delivery: onboarding.healthState(),
+    inbound_webhook: onboarding.webhookHealthState(),
     framework_versions: frameworks.versions,
   }));
 

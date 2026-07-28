@@ -49,6 +49,13 @@ export interface OnboardingStatus {
   /** All template names seen on the account — helps the operator pick/pin one. */
   account_templates: { name: string; status?: string; language?: string }[];
   action_needed: typeof RECOMMENDED_TEMPLATE | null;
+  /**
+   * Inbound-webhook wiring on the 11za account. "ok" = points at us; "registered" =
+   * was missing and the agent just fixed it; "foreign" = someone else's URL (the
+   * agent will NOT overwrite it — that's an operator decision); "unknown" = check failed.
+   */
+  inbound_webhook: "stub" | "ok" | "registered" | "foreign" | "missing" | "unknown";
+  inbound_webhook_foreign_url?: string;
 }
 
 export class Onboarding {
@@ -78,9 +85,37 @@ export class Onboarding {
     return this.refreshing;
   }
 
+  private webhookState: OnboardingStatus["inbound_webhook"] = "unknown";
+  private webhookForeignUrl?: string;
+
+  /**
+   * The funnel is dead without the account's inbound webhook pointing at us — verify
+   * it every refresh and re-register when it has gone missing (deploys don't touch
+   * it, but account-side changes can wipe it). A URL belonging to someone else is
+   * reported, never overwritten: this may be a shared 11za account.
+   */
+  private async ensureInboundWebhook(): Promise<void> {
+    if (!settings.wa.webhookSecret) { this.webhookState = "unknown"; return; }
+    const expected = `${settings.publicBaseUrl}/webhooks/11za?secret=${settings.wa.webhookSecret}`;
+    const current = await this.wa.getInboundWebhook();
+    this.webhookForeignUrl = undefined;
+    if (current === expected) { this.webhookState = "ok"; return; }
+    if (current) {
+      this.webhookState = "foreign";
+      this.webhookForeignUrl = current;
+      console.warn(`[onboarding] 11za inbound webhook points elsewhere — NOT overwriting. Operator decision needed.`);
+      return;
+    }
+    const r = await this.wa.addInboundWebhook(expected);
+    this.webhookState = r.ok ? "registered" : "missing";
+    console[r.ok ? "info" : "warn"](`[onboarding] inbound webhook was unset — registration ${r.ok ? "succeeded" : `failed: ${r.detail}`}`);
+  }
+
   private async doRefresh(): Promise<void> {
     this.lastChecked = Date.now();
     if (this.wa.stubMode) return;
+
+    await this.ensureInboundWebhook().catch(() => { this.webhookState = "unknown"; });
 
     const [all, counts] = await Promise.all([
       this.wa.listTemplates(),
@@ -197,6 +232,11 @@ export class Onboarding {
     return this.resolved ? "ready" : "no_template";
   }
 
+  /** Ditto for the inbound-webhook wiring. */
+  webhookHealthState(): OnboardingStatus["inbound_webhook"] {
+    return this.wa.stubMode ? "stub" : this.webhookState;
+  }
+
   async status(): Promise<OnboardingStatus> {
     await this.ensureFresh();
     return {
@@ -208,6 +248,8 @@ export class Onboarding {
       last_error: this.lastError,
       account_templates: this.catalog,
       action_needed: this.resolved ? null : RECOMMENDED_TEMPLATE,
+      inbound_webhook: this.wa.stubMode ? "stub" : this.webhookState,
+      inbound_webhook_foreign_url: this.webhookForeignUrl,
     };
   }
 

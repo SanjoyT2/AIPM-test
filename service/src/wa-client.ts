@@ -123,6 +123,28 @@ export class WaClient {
   }
 
   /**
+   * Inbound-webhook config on the 11za account. get returns the configured URL
+   * (null = none or unreadable — 11za 500s with "Cannot convert undefined" when
+   * nothing was ever configured). add overwrites the account-level setting.
+   */
+  async getInboundWebhook(): Promise<string | null> {
+    if (this.stubMode) return null;
+    const r = await this.post("/apis/inboundwebhook/get", {});
+    if (!r.ok || !r.detail) return null;
+    try {
+      const j = JSON.parse(r.detail);
+      const url = j.Data?.webhookurl ?? j.Data?.webhookUrl ?? null;
+      return typeof url === "string" && url ? url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async addInboundWebhook(webhookUrl: string, statusMessageWebhookUrl = ""): Promise<WaSendResult> {
+    return this.post("/apis/inboundwebhook/add", { webhookUrl, statusMessageWebhookUrl });
+  }
+
+  /**
    * Real 24h window status from 11za. Returns null in stub mode or on error so
    * callers fall back to their own window bookkeeping rather than crash.
    */
