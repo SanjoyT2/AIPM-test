@@ -11,37 +11,29 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Try candidate create/update endpoints
+      - name: Iterate payload shapes against /apis/template/create
         env:
           WA_API_TOKEN: ${{ secrets.WA_API_TOKEN }}
           WA_ORIGIN_WEBSITE: ${{ secrets.WA_ORIGIN_WEBSITE }}
         run: |
           BODY_TEXT="{{1}} is your Degree2Destiny verification code. It expires in 10 minutes."
-          PAYLOAD=$(cat <<EOF
-          {
-            "authToken": "${WA_API_TOKEN}",
-            "originWebsite": "${WA_ORIGIN_WEBSITE}",
-            "templateName": "signup_otp",
-            "name": "signup_otp",
-            "language": "en",
-            "category": "AUTHENTICATION",
-            "body": "${BODY_TEXT}",
-            "bodyText": "${BODY_TEXT}",
-            "components": [
-              { "type": "BODY", "text": "${BODY_TEXT}", "example": { "texts": ["482913"] } }
-            ],
-            "example": ["482913"]
-          }
-          EOF
-          )
-          for ep in addTemplate add createTemplate create submitTemplate updateTemplate templateCreate; do
-            echo "==== /apis/template/${ep} ===="
-            curl -sS -o /tmp/resp -w "HTTP %{http_code}\n" -X POST "https://api.11za.in/apis/template/${ep}" \
-              -H "Content-Type: application/json" -d "${PAYLOAD}" || true
-            head -c 500 /tmp/resp; echo
+          INNER="{\"name\":\"signup_otp\",\"category\":\"AUTHENTICATION\",\"language\":\"en\",\"components\":[{\"type\":\"BODY\",\"text\":\"${BODY_TEXT}\",\"example\":{\"texts\":[\"482913\"]}}]}"
+          AUTH="\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\""
+
+          declare -A SHAPES
+          SHAPES[template]="{${AUTH},\"template\":${INNER}}"
+          SHAPES[data]="{${AUTH},\"data\":${INNER}}"
+          SHAPES[templateData]="{${AUTH},\"templateData\":${INNER}}"
+          SHAPES[localizations]="{${AUTH},\"name\":\"signup_otp\",\"category\":\"AUTHENTICATION\",\"localizations\":[{\"language\":\"en\",\"components\":[{\"type\":\"BODY\",\"text\":\"${BODY_TEXT}\",\"example\":{\"texts\":[\"482913\"]}}]}]}"
+
+          for key in template data templateData localizations; do
+            echo "==== shape: ${key} ===="
+            curl -sS -o /tmp/resp -w "HTTP %{http_code}\n" -X POST "https://api.11za.in/apis/template/create" \
+              -H "Content-Type: application/json" -d "${SHAPES[$key]}" || true
+            head -c 600 /tmp/resp; echo
           done
           echo "==== catalog after probes ===="
           curl -sS -X POST "https://api.11za.in/apis/template/getTemplates" \
             -H "Content-Type: application/json" \
-            -d "{\"authToken\":\"${WA_API_TOKEN}\",\"originWebsite\":\"${WA_ORIGIN_WEBSITE}\",\"limit\":10,\"page\":1,\"search\":\"\"}" \
+            -d "{${AUTH},\"limit\":10,\"page\":1,\"search\":\"\"}" \
             | head -c 1500; echo
