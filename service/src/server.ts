@@ -170,7 +170,7 @@ async function main() {
 
   await auth.bootstrapAdmin(settings.bootstrapAdmin.email, settings.bootstrapAdmin.password, {
     info: (m) => app.log.info(m), warn: (m) => app.log.warn(m), error: (m) => app.log.error(m),
-  });
+  }, { force: settings.bootstrapAdmin.force });
 
   /* ------------------------------------------------------------------ access */
 

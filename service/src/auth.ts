@@ -274,8 +274,28 @@ export class Auth {
    */
   async bootstrapAdmin(email: string | undefined, password: string | undefined, log: {
     info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void;
-  }): Promise<void> {
+  }, opts: { force?: boolean } = {}): Promise<void> {
     if (!email || !password) return;
+
+    /*
+     * force: recovery hatch for a lost admin password. Whoever controls the deploy
+     * secrets already owns the box, so letting them reset THE bootstrap account's
+     * password (never create extra admins) adds no new attacker capability. Off by
+     * default; turn the BOOTSTRAP_ADMIN_FORCE variable back off after recovering.
+     */
+    if (opts.force) {
+      const existing = await this.findByEmail(email);
+      if (existing) {
+        await this.setPassword(existing.user_id, password, { mustChange: false });
+        log.warn(`BOOTSTRAP_ADMIN_FORCE: password reset for ${email} — turn the flag off now that you're in`);
+        return;
+      }
+      const r = await this.createUser({ email, password, role: "admin", name: "Administrator", must_change_password: false });
+      if (r.ok) log.warn(`BOOTSTRAP_ADMIN_FORCE: created admin ${email} — turn the flag off now that you're in`);
+      else log.error(`admin bootstrap (force) failed: ${r.error}`);
+      return;
+    }
+
     if ((await this.count()) > 0) return;
     const r = await this.createUser({ email, password, role: "admin", name: "Administrator", must_change_password: true });
     if (r.ok) log.warn(`bootstrapped admin account ${r.user.email} — change this password after first login`);

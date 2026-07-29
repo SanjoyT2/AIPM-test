@@ -40,6 +40,8 @@ export const settings = {
   bootstrapAdmin: {
     email: process.env.BOOTSTRAP_ADMIN_EMAIL ?? "",
     password: process.env.BOOTSTRAP_ADMIN_PASSWORD ?? "",
+    /** Recovery hatch: reset the bootstrap account's password on boot. Turn off after use. */
+    force: process.env.BOOTSTRAP_ADMIN_FORCE === "true",
   },
 
   /** Session cookies are Secure unless we're plainly on http locally. */
