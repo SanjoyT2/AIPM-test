@@ -174,7 +174,10 @@ async function main() {
 
   /* ------------------------------------------------------------------ access */
 
-  const sessionUser = (req: any): Promise<SessionUser | null> => auth.resolve(req.cookies?.[SESSION_COOKIE]);
+  /** Open-access mode: every visitor is this synthetic admin. No sessions, no login. */
+  const OPEN_ADMIN: SessionUser = { user_id: "open-access", email: "open@d2d", name: "Open Access", role: "admin" };
+  const sessionUser = async (req: any): Promise<SessionUser | null> =>
+    settings.authOpen ? OPEN_ADMIN : auth.resolve(req.cookies?.[SESSION_COOKIE]);
 
   /**
    * The single gate. Returns true when the request was refused, so handlers read as
@@ -185,6 +188,7 @@ async function main() {
    * dev box — no operator key and not production — which keeps `npm run dev` usable.
    */
   async function deny(req: any, reply: any, perm: Permission): Promise<boolean> {
+    if (settings.authOpen) return false; // open-access mode: everything allowed
     if (operatorKeyValid(req)) return false;
     if (presentedOperatorKey(req)) { reply.code(401).send({ error: "bad operator key" }); return true; }
 

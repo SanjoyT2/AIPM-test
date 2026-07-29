@@ -44,6 +44,13 @@ export const settings = {
     force: process.env.BOOTSTRAP_ADMIN_FORCE === "true",
   },
 
+  /**
+   * OPEN-ACCESS MODE: every visitor to the console is treated as a signed-in admin.
+   * Requested by the operator to remove login friction pre-launch. Turn OFF (unset
+   * the AUTH_OPEN repo variable + redeploy) before real learners/PII arrive.
+   */
+  authOpen: process.env.AUTH_OPEN === "true",
+
   /** Session cookies are Secure unless we're plainly on http locally. */
   cookieSecure: (process.env.COOKIE_SECURE ?? (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
 
