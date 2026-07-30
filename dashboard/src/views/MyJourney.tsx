@@ -14,6 +14,7 @@ export default function MyJourney() {
   const [checkin, setCheckin] = useState<{ message: string; status: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showAgentDetails, setShowAgentDetails] = useState(false);
 
   useEffect(() => {
     api.myJourney()
@@ -41,10 +42,7 @@ export default function MyJourney() {
       {err && <div className="banner danger" onClick={() => setErr(null)}>⚠︎ {err} <span className="sub">(click to dismiss)</span></div>}
 
       {journey && !journey.enrolled && (
-        <Empty>
-          You're registered but not enrolled in a course yet. Your coach will enroll you —
-          or just message us on WhatsApp and we'll get you started.
-        </Empty>
+        <RoadmapAndAgents first={first} />
       )}
 
       {journey?.enrolled && (
@@ -105,8 +103,135 @@ export default function MyJourney() {
               <div style={{ whiteSpace: "pre-wrap" }}>{checkin.message}</div>
             </Panel>
           )}
+
+          <div style={{ marginTop: 32, display: "flex", justifyContent: "center" }}>
+            <button className="chip" onClick={() => setShowAgentDetails(!showAgentDetails)}>
+              {showAgentDetails ? "Hide AI Support Team & Roadmap" : "Show AI Support Team & Roadmap"}
+            </button>
+          </div>
+
+          {showAgentDetails && (
+            <div style={{ marginTop: 24, borderTop: "1px solid var(--line)", paddingTop: 16 }}>
+              <RoadmapAndAgents first={first} />
+            </div>
+          )}
         </>
       )}
     </>
+  );
+}
+
+function RoadmapAndAgents({ first }: { first: string }) {
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div className="onboarding-welcome">
+        <h2>Welcome to your Destiny, {first}!</h2>
+        <p>
+          You have successfully completed your initial registration. You are now ready to begin your journey to becoming an AI Implementation Executive. Here is what to expect and how your AI support team will guide you.
+        </p>
+      </div>
+
+      <div className="whatsapp-action-card">
+        <div className="whatsapp-icon">💬</div>
+        <div className="whatsapp-action-text">
+          <h3>Next Step: Activate WhatsApp</h3>
+          <p>
+            WhatsApp is your primary classroom. Open WhatsApp and send the message <strong>START</strong> to the chat where you received your verification code. This will activate your daily training!
+          </p>
+        </div>
+      </div>
+
+      <h2>Your Student Journey</h2>
+      <div className="roadmap-grid">
+        <div className="roadmap-card">
+          <div className="step-num">1</div>
+          <h3>Intake & Setup</h3>
+          <p>Verify your details and submit your documents (KYC + CV) on WhatsApp to set up your learner profile.</p>
+        </div>
+        <div className="roadmap-card">
+          <div className="step-num">2</div>
+          <h3>Personalized Lessons</h3>
+          <p>Receive daily personalized micro-lessons and quizzes on WhatsApp, specifically tailored to your performance.</p>
+        </div>
+        <div className="roadmap-card">
+          <div className="step-num">3</div>
+          <h3>Real-World Project</h3>
+          <p>Define a real business project and implement AI tools to solve concrete operational challenges.</p>
+        </div>
+        <div className="roadmap-card">
+          <div className="step-num">4</div>
+          <h3>Placement & Hiring</h3>
+          <p>Build a portfolio of actual deployments, finish the curriculum, and get placed full-time in a growing business.</p>
+        </div>
+      </div>
+
+      <h2>Meet Your AI Agent Team</h2>
+      <div className="sub" style={{ marginBottom: 16 }}>These specialized agents will guide, teach, and assess you on WhatsApp 24/7.</div>
+
+      <div className="agents-grid">
+        <div className="agent-card">
+          <div className="agent-avatar onboarding">📱</div>
+          <div className="agent-info">
+            <h3>Onboarding Agent</h3>
+            <span className="role-tag">First Contact & Document Intake</span>
+            <p>Verifies your number, welcomes you to D2D, and collects your CV and documents to start your profile.</p>
+          </div>
+        </div>
+
+        <div className="agent-card">
+          <div className="agent-avatar trainer">🎓</div>
+          <div className="agent-info">
+            <h3>Personal Trainer</h3>
+            <span className="role-tag">Daily Lesson Delivery</span>
+            <p>Serves your daily lesson briefs, quizzes, and tasks. Adjusts the curriculum speed based on your strengths.</p>
+          </div>
+        </div>
+
+        <div className="agent-card">
+          <div className="agent-avatar mentor">💬</div>
+          <div className="agent-info">
+            <h3>Mentor Agent</h3>
+            <span className="role-tag">24/7 Doubts & Support</span>
+            <p>Always active to answer any questions or explain business and tech concepts in simple terms.</p>
+          </div>
+        </div>
+
+        <div className="agent-card">
+          <div className="agent-avatar examiner">📝</div>
+          <div className="agent-info">
+            <h3>Examiner Agent</h3>
+            <span className="role-tag">Scoring & Quizzes</span>
+            <p>Grades your assessments and scores lesson milestones to certify that you have mastered each topic.</p>
+          </div>
+        </div>
+
+        <div className="agent-card">
+          <div className="agent-avatar assessor">🔍</div>
+          <div className="agent-info">
+            <h3>Assessor Agent</h3>
+            <span className="role-tag">Project Grading</span>
+            <p>Generates hyper-personalized tasks based on your live project and scores your operational solutions.</p>
+          </div>
+        </div>
+
+        <div className="agent-card">
+          <div className="agent-avatar motivator">⚡</div>
+          <div className="agent-info">
+            <h3>Motivator Agent</h3>
+            <span className="role-tag">Progress Nudges</span>
+            <p>Checks in to encourage you, send friendly reminders, and support you if your progress stalls.</p>
+          </div>
+        </div>
+
+        <div className="agent-card" style={{ gridColumn: "1 / -1" }}>
+          <div className="agent-avatar coach">🤝</div>
+          <div className="agent-info">
+            <h3>Coach Agent</h3>
+            <span className="role-tag">AI Program Manager</span>
+            <p>Conducts weekly check-ins to evaluate if you are on-track, helps unblock problems, and escalates to human facilitators when needed.</p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
