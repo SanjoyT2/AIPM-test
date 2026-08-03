@@ -1,4 +1,4 @@
-import type { AccountRow, AgentDetail, AgentSummary, AgentTransaction, CohortRow, CostRollupRow, CourseDetail, CourseSummary, GuardrailRuleDef, GuardrailSet, Health, Journey, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary, NewLesson, NewModule, Role, Signup } from "./types";
+import type { AccountRow, AgentDetail, AgentSummary, AgentTransaction, CohortRow, CostRollupRow, CourseDetail, CourseSummary, GuardrailRuleDef, GuardrailSet, Health, Journey, KbDocument, KnowledgeBase, LearnerMeasurement, LearnerSummary, NewLesson, NewModule, Role, Signup, LearnerSummaryReport } from "./types";
 
 /** Surfaces the server's own error text — "sign in required", "role X cannot Y". */
 async function fail(r: Response, path: string): Promise<never> {
@@ -28,6 +28,7 @@ export const api = {
   framework: (name: string) => get<unknown>(`/api/config/frameworks/${name}`),
   learners: () => get<LearnerSummary[]>("/api/learners"),
   learner: (id: string) => get<LearnerMeasurement>(`/api/learners/${encodeURIComponent(id)}`),
+  learnerSummaryReport: (id: string) => get<LearnerSummaryReport>(`/api/learners/${encodeURIComponent(id)}/summary-report`),
   resolveIntegrity: (learner: string, competency: string, decision: "cleared" | "upheld") =>
     post(`/api/learners/${encodeURIComponent(learner)}/integrity/${encodeURIComponent(competency)}`, { decision }),
   resolveEscalation: (txId: string, decision: "acknowledged" | "overridden") =>

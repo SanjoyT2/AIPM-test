@@ -666,6 +666,87 @@ async function main() {
     return { ok: true, status: "deployed" };
   });
 
+  app.get("/api/learners/:id/summary-report", async (req, reply) => {
+    if (await deny(req, reply, "viewOperator")) return;
+    const { id } = req.params as { id: string };
+    
+    const evs = await evidence.forLearner(id);
+    const txs = await ledger.list({ subject: id, limit: 200 });
+
+    // 1. Calculate Attendance (Unique days active)
+    const activeDates = new Set<string>();
+    evs.forEach(e => activeDates.add(e.timestamp.slice(0, 10)));
+    txs.forEach((t) => {
+      if (t.timestamp) activeDates.add(t.timestamp.slice(0, 10));
+    });
+    const daysActive = activeDates.size;
+
+    // 2. Reading Habits & Speed (Micro lessons read & average response gap)
+    const totalMicrosRead = evs.filter(e => e.evidence_refs?.some(r => r.includes("micro"))).length;
+
+    let totalGapMinutes = 0;
+    let gapCount = 0;
+    const sortedEvs = [...evs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    for (let i = 1; i < sortedEvs.length; i++) {
+      const diffMs = new Date(sortedEvs[i].timestamp).getTime() - new Date(sortedEvs[i-1].timestamp).getTime();
+      const diffMins = diffMs / 60000;
+      if (diffMins > 0 && diffMins < 1440) {
+        totalGapMinutes += diffMins;
+        gapCount++;
+      }
+    }
+    const avgResponseTimeMinutes = gapCount > 0 ? Math.round(totalGapMinutes / gapCount) : null;
+
+    // 3. Assessment Scores Breakdown
+    const quizzes = evs.filter(e => e.activity_type === "quiz");
+    const tasks = evs.filter(e => e.activity_type === "task");
+    const vivas = evs.filter(e => e.activity_type === "gate_viva");
+
+    const getAvg = (arr: any[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b.score, 0) / arr.length) : null;
+
+    const scoresBreakdown = {
+      quizzes: { count: quizzes.length, avg: getAvg(quizzes) },
+      tasks: { count: tasks.length, avg: getAvg(tasks) },
+      vivas: { count: vivas.length, avg: getAvg(vivas) }
+    };
+
+    // 4. Generate AI Summary using LLM gateway
+    const project = await lms.getProject(id);
+    const cleared = await operatorActions.clearedIntegrityFor(id);
+    const m = measurement.compute(id, evs, { asOf: Date.now(), clearedIntegrity: cleared });
+    
+    const evidenceSummary = evs.map(e => `${e.activity_type} on ${e.competency_id}: score ${e.score}/100`).join("\n");
+    const projSummary = project ? `Project: ${project.title} for ${project.stakeholder} - status ${project.status}` : "No project scoped yet";
+    const masterySummary = m.mastery.map(c => `${c.name}: ${c.estimate.toFixed(0)}% (threshold ${c.threshold})`).join("\n");
+
+    const prompt = `Analyze the learning progress, strengths, weaknesses, and participation behaviors of the following learner:\n\n` +
+      `Learner ID: ${id}\n` +
+      `Attendance (Days active): ${daysActive}\n` +
+      `Micro lessons read: ${totalMicrosRead}\n` +
+      `Avg response gap (mins): ${avgResponseTimeMinutes || "unknown"}\n` +
+      `${projSummary}\n\n` +
+      `Mastery Levels:\n${masterySummary}\n\n` +
+      `Evidence Log:\n${evidenceSummary}\n\n` +
+      `Write a professional, concise summary of this learner. Keep it to exactly 3 bullet points showing: 1) Strengths/competency gains, 2) Weaknesses or risk factors, 3) Progression/engagement behavior. Formatting: Markdown list.`;
+
+    const res = await gateway.complete({
+      tier: "fast", role: "critic",
+      system: "You are the head AI Program Manager coach. Summarize student learning data objectively and constructively.",
+      user: prompt,
+      maxTokens: 500
+    });
+
+    const aiSummary = res.text.trim();
+
+    return {
+      days_active: daysActive,
+      total_micros_read: totalMicrosRead,
+      avg_response_time_minutes: avgResponseTimeMinutes,
+      scores_breakdown: scoresBreakdown,
+      ai_summary: aiSummary
+    };
+  });
+
   app.get("/api/config/frameworks", async () => frameworks.versions);
   app.get("/api/config/frameworks/:name", async (req, reply) => {
     const { name } = req.params as { name: string };

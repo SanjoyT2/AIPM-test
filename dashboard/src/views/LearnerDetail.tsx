@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtTime, fmtUsd } from "../api";
 import { Panel, StatusPill, VerdictPill } from "../components";
-import type { LearnerMeasurement, AgentTransaction } from "../types";
+import type { LearnerMeasurement, AgentTransaction, LearnerSummaryReport } from "../types";
 
 /** One learner's measurement: composite breakdown, mastery per competency, integrity, evidence. */
 export default function LearnerDetail() {
   const { id } = useParams<{ id: string }>();
   const [m, setM] = useState<LearnerMeasurement | null>(null);
   const [txs, setTxs] = useState<AgentTransaction[]>([]);
+  const [report, setReport] = useState<LearnerSummaryReport | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -16,6 +18,11 @@ export default function LearnerDetail() {
     if (id) {
       api.learner(id).then(setM).catch((e) => setErr(String(e)));
       api.transactions({ subject: id }).then(setTxs).catch(() => setTxs([]));
+      setLoadingReport(true);
+      api.learnerSummaryReport(id)
+        .then(setReport)
+        .catch(() => setReport(null))
+        .finally(() => setLoadingReport(false));
     }
   };
   useEffect(load, [id]);
@@ -40,6 +47,55 @@ export default function LearnerDetail() {
       <div className="sub" style={{ marginBottom: 16 }}>
         framework {c.framework_version} · formula {c.formula_version} · {m.evidence_count} evidence events
       </div>
+
+      {loadingReport ? (
+        <Panel title="AI Summary & Engagement Metrics">
+          <div className="sub">Generating AI summary and compiling engagement metrics...</div>
+        </Panel>
+      ) : report ? (
+        <Panel title="AI Summary & Engagement Metrics">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28, marginBottom: 14 }}>
+            <div>
+              <h3>AI PM Coach Summary</h3>
+              <div className="code" style={{ whiteSpace: "pre-wrap", padding: 12, borderRadius: 6, background: "var(--bg-card, #f9f9f9)", fontSize: 13, borderLeft: "4px solid var(--accent)" }}>
+                {report.ai_summary}
+              </div>
+            </div>
+            <div>
+              <h3>Engagement & Behavioral Metrics</h3>
+              <div className="kv" style={{ marginTop: 10 }}>
+                <div className="k">Attendance</div>
+                <div>💬 <b>{report.days_active} days</b> active on WhatsApp</div>
+
+                <div className="k">Reading habits</div>
+                <div>📖 <b>{report.total_micros_read} micro-lessons</b> completed</div>
+
+                <div className="k">Response speed</div>
+                <div>⏱ <b>{report.avg_response_time_minutes ? `${report.avg_response_time_minutes} minutes` : "instant / no gap"}</b> average response interval</div>
+              </div>
+
+              <h3 style={{ marginTop: 16 }}>Assessment Scores Breakdown</h3>
+              <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+                <div style={{ flex: 1, padding: 8, background: "var(--bg-light, #f1f5f9)", borderRadius: 6, textAlign: "center" }}>
+                  <div className="sub" style={{ fontSize: 11 }}>Quizzes</div>
+                  <div style={{ fontSize: 18, fontWeight: 600 }}>{report.scores_breakdown.quizzes.avg !== null ? `${report.scores_breakdown.quizzes.avg}%` : "—"}</div>
+                  <div className="sub" style={{ fontSize: 10 }}>{report.scores_breakdown.quizzes.count} graded</div>
+                </div>
+                <div style={{ flex: 1, padding: 8, background: "var(--bg-light, #f1f5f9)", borderRadius: 6, textAlign: "center" }}>
+                  <div className="sub" style={{ fontSize: 11 }}>Tasks</div>
+                  <div style={{ fontSize: 18, fontWeight: 600 }}>{report.scores_breakdown.tasks.avg !== null ? `${report.scores_breakdown.tasks.avg}%` : "—"}</div>
+                  <div className="sub" style={{ fontSize: 10 }}>{report.scores_breakdown.tasks.count} graded</div>
+                </div>
+                <div style={{ flex: 1, padding: 8, background: "var(--bg-light, #f1f5f9)", borderRadius: 6, textAlign: "center" }}>
+                  <div className="sub" style={{ fontSize: 11 }}>Vivas</div>
+                  <div style={{ fontSize: 18, fontWeight: 600 }}>{report.scores_breakdown.vivas.avg !== null ? `${report.scores_breakdown.vivas.avg}%` : "—"}</div>
+                  <div className="sub" style={{ fontSize: 10 }}>{report.scores_breakdown.vivas.count} graded</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel title="Composite score">
         <div style={{ display: "flex", gap: 28, alignItems: "baseline", flexWrap: "wrap", marginBottom: 14 }}>

@@ -219,3 +219,15 @@ export interface LearnerMeasurement {
   evidence_count: number;
   evidence: EvidenceEvent[];
 }
+
+export interface LearnerSummaryReport {
+  days_active: number;
+  total_micros_read: number;
+  avg_response_time_minutes: number | null;
+  scores_breakdown: {
+    quizzes: { count: number; avg: number | null };
+    tasks: { count: number; avg: number | null };
+    vivas: { count: number; avg: number | null };
+  };
+  ai_summary: string;
+}
