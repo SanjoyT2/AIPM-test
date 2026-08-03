@@ -101,6 +101,8 @@ export const api = {
     opPost<{ learner_id: string; course_id: string }>("/api/enroll", { learner, course }),
   journey: (learner: string) => get<Journey>(`/api/learners/${encodeURIComponent(learner)}/journey`),
   checkin: (learner: string) => post<{ message: string; status: string; flag_reason?: string }>(`/api/learners/${encodeURIComponent(learner)}/checkin`, {}),
+  bypassOnboarding: (id: string, bypass: boolean) => opPost<{ ok: boolean; bypass_onboarding: boolean }>(`/api/learners/${encodeURIComponent(id)}/bypass-onboarding`, { bypass }),
+  deployLearner: (id: string) => opPost<{ ok: boolean; status: string }>(`/api/learners/${encodeURIComponent(id)}/deploy`, {}),
   advance: async (learner: string, text: string, opKey: string) => {
     const r = await fetch(`/api/learners/${encodeURIComponent(learner)}/advance`, {
       method: "POST", headers: { "Content-Type": "application/json", "x-operator-key": opKey }, body: JSON.stringify({ text }),

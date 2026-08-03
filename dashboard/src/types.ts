@@ -119,6 +119,8 @@ export interface CohortRow {
   learner_id: string; course: string; status: string;
   completed: number; total: number; modules_complete: number; modules_total: number;
   project: { title: string; stakeholder: string; status: string } | null;
+  last_active_at: string | null;
+  bypass_onboarding: boolean;
 }
 /* ------------------------------------------------------------ accounts + roles */
 

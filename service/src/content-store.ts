@@ -31,6 +31,9 @@ export interface Progress {
   /** The personalized content most recently served on WhatsApp — what the web view shows. */
   last_rendered?: { lesson_id: string; title: string; module_title: string; body: string; at: string };
   updated_at: string;
+  diagnostic_stage?: "not_started" | "m1" | "m2" | "m3" | "m4" | "completed";
+  diagnostic_scores?: Record<string, number>;
+  skipped_modules?: string[];
 }
 
 /** A resolved journey step: a lesson with its module context. */
@@ -182,19 +185,22 @@ export class LmsStore {
   async nextStep(learnerId: string, courseId: string): Promise<JourneyStep | null> {
     const p = await this.getProgress(learnerId, courseId);
     const done = new Set(p.completed);
-    return (await this.courseJourney(courseId)).find((s) => !done.has(s.lesson_id)) ?? null;
+    const skipped = new Set(p.skipped_modules ?? []);
+    return (await this.courseJourney(courseId)).find((s) => !done.has(s.lesson_id) && !skipped.has(s.module_id)) ?? null;
   }
 
   /** Per-module completion for a learner — the weekly milestone view. */
   async moduleProgress(learnerId: string, courseId: string): Promise<{ module: Module; done: number; total: number; complete: boolean }[]> {
     const p = await this.getProgress(learnerId, courseId);
     const done = new Set(p.completed);
+    const skipped = new Set(p.skipped_modules ?? []);
     const mods = await this.listModules(courseId);
     const out = [];
     for (const m of mods) {
       const lessons = await this.listLessons(m.module_id);
-      const n = lessons.filter((l) => done.has(l.lesson_id)).length;
-      out.push({ module: m, done: n, total: lessons.length, complete: lessons.length > 0 && n === lessons.length });
+      const isSkipped = skipped.has(m.module_id);
+      const n = isSkipped ? lessons.length : lessons.filter((l) => done.has(l.lesson_id)).length;
+      out.push({ module: m, done: n, total: lessons.length, complete: isSkipped || (lessons.length > 0 && n === lessons.length) });
     }
     return out;
   }

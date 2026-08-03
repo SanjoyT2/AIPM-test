@@ -23,6 +23,39 @@ export default function Cohort() {
     if (!openId) return; setBusy(true);
     try { setCheckin(await api.checkin(openId)); } finally { setBusy(false); }
   };
+
+  const toggleBypass = async () => {
+    const activeRow = rows.find(r => r.learner_id === openId);
+    if (!openId || !activeRow) return;
+    setBusy(true);
+    try {
+      const targetBypass = !activeRow.bypass_onboarding;
+      await api.bypassOnboarding(openId, targetBypass);
+      setRows(prev => prev.map(r => r.learner_id === openId ? { ...r, bypass_onboarding: targetBypass } : r));
+    } catch (e) {
+      alert(`Error toggling onboarding bypass: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deploy = async () => {
+    if (!openId) return;
+    if (!window.confirm(`Are you sure you want to deploy learner ${openId}?`)) return;
+    setBusy(true);
+    try {
+      await api.deployLearner(openId);
+      const updatedRows = await api.cohort();
+      setRows(updatedRows);
+      reloadJourney();
+      alert(`Learner ${openId} successfully deployed!`);
+    } catch (e) {
+      alert(`Error deploying learner: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const drive = async () => {
     if (!openId || !msg.trim() || driving) return;
     const key = opKey();
@@ -35,7 +68,9 @@ export default function Cohort() {
     } catch (e) { setChat((c) => [...c, { dir: "in", text: `⚠︎ ${String(e)}` }]); }
     finally { setDriving(false); }
   };
+
   const tone = (s: string) => s === "flag" ? "danger" : s === "at_risk" ? "warn" : "ok";
+  const activeRow = rows.find(r => r.learner_id === openId);
 
   return (
     <>
@@ -44,7 +79,17 @@ export default function Cohort() {
 
       {rows.length === 0 ? <Empty>No enrolled learners yet. Learners enroll when they start their journey on WhatsApp.</Empty> : (
         <table>
-          <thead><tr><th>Learner</th><th>Course</th><th className="num">Lessons</th><th className="num">Weeks</th><th>Project</th><th>Status</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Learner</th>
+              <th>Course</th>
+              <th className="num">Lessons</th>
+              <th className="num">Weeks</th>
+              <th>Project</th>
+              <th>Last Active</th>
+              <th>Status</th>
+            </tr>
+          </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.learner_id} className="row" onClick={() => setOpenId(openId === r.learner_id ? "" : r.learner_id)}>
@@ -53,6 +98,7 @@ export default function Cohort() {
                 <td className="num">{r.completed}/{r.total}</td>
                 <td className="num">{r.modules_complete}/{r.modules_total}</td>
                 <td>{r.project ? <>{r.project.title} <span className="sub">· {r.project.stakeholder}</span></> : <span className="sub">not scoped</span>}</td>
+                <td className="sub">{r.last_active_at ? new Date(r.last_active_at).toLocaleString() : "never"}</td>
                 <td><span className={`pill ${r.status === "completed" ? "ok" : "info"}`}>{r.status}</span></td>
               </tr>
             ))}
@@ -82,9 +128,22 @@ export default function Cohort() {
               ))}
             </tbody>
           </table>
-          <div style={{ marginTop: 12 }}>
+          
+          <div style={{ marginTop: 12, display: "flex", gap: 12, alignItems: "center" }}>
             <button className="chip" disabled={busy} onClick={runCheckin}>{busy ? "Coach thinking…" : "Run Coach check-in"}</button>
+            
+            {activeRow && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+                <input type="checkbox" checked={activeRow.bypass_onboarding} onChange={toggleBypass} disabled={busy} />
+                <span className="sub">Bypass Onboarding check</span>
+              </label>
+            )}
+
+            {activeRow && activeRow.status !== "completed" && activeRow.project?.status !== "deployed" && (
+              <button className="chip" style={{ background: "var(--success, #2e7d32)", color: "white" }} disabled={busy} onClick={deploy}>Deploy Learner</button>
+            )}
           </div>
+
           {checkin && (
             <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
               <span className={`pill ${tone(checkin.status)}`}>{checkin.status}</span>

@@ -25,6 +25,8 @@ export interface Learner {
   /** Magic-link auth for the learner web view — the token IS the credential. */
   journey_token?: string;
   journey_token_expires?: number;
+  bypass_onboarding?: boolean;
+  last_active_at?: string;
 }
 
 /**
@@ -203,6 +205,14 @@ export class Signups {
     l.kyc = { ...l.kyc, ...patch, updated_at: new Date().toISOString() };
     await this.put(l);
     return true;
+  }
+
+  async update(learnerId: string, patch: Partial<Learner>): Promise<Learner | null> {
+    const l = await this.getByLearnerId(learnerId);
+    if (!l) return null;
+    const updated = { ...l, ...patch };
+    await this.put(updated);
+    return updated;
   }
 
   /**

@@ -146,6 +146,7 @@ async function main() {
   await lms.init(ledger.getPool());
   const learning = new LearningEngine(
     lms, evidence, gateway, dailyLoop, frameworks.versions.competency_framework,
+    signups,
     async (learnerId) => {
       const token = await signups.mintJourneyToken(learnerId);
       return token ? `${settings.publicBaseUrl}/l/${token}` : null;
@@ -605,9 +606,64 @@ async function main() {
       const done = mods.reduce((a, m) => a + m.done, 0);
       const course = await lms.getCourse(e.course_id);
       const project = await lms.getProject(e.learner_id);
-      rows.push({ learner_id: e.learner_id, course: course?.title ?? e.course_id, status: e.status, completed: done, total, modules_complete: mods.filter((m) => m.complete).length, modules_total: mods.length, project: project ? { title: project.title, stakeholder: project.stakeholder, status: project.status } : null });
+      const learner = await signups.getByLearnerId(e.learner_id);
+      rows.push({
+        learner_id: e.learner_id,
+        course: course?.title ?? e.course_id,
+        status: e.status,
+        completed: done,
+        total,
+        modules_complete: mods.filter((m) => m.complete).length,
+        modules_total: mods.length,
+        project: project ? { title: project.title, stakeholder: project.stakeholder, status: project.status } : null,
+        last_active_at: learner?.last_active_at ?? null,
+        bypass_onboarding: learner?.bypass_onboarding ?? false,
+      });
     }
     return rows;
+  });
+
+  app.post("/api/learners/:id/bypass-onboarding", async (req, reply) => {
+    if (await deny(req, reply, "manageLearners")) return;
+    const { id } = req.params as { id: string };
+    const { bypass } = (req.body ?? {}) as { bypass?: boolean };
+    const updated = await signups.update(id, { bypass_onboarding: !!bypass });
+    if (!updated) return reply.code(404).send({ error: "learner not found" });
+    return { ok: true, bypass_onboarding: updated.bypass_onboarding };
+  });
+
+  app.post("/api/learners/:id/deploy", async (req, reply) => {
+    if (await deny(req, reply, "manageLearners")) return;
+    const { id } = req.params as { id: string };
+    
+    // Update learner enrollment status if active to completed
+    const activeEnr = await lms.activeEnrollment(id);
+    if (activeEnr) {
+      await lms.completeEnrollment(id, activeEnr.course_id);
+    }
+    
+    // Get project and update project status to "deployed"
+    const project = await lms.getProject(id);
+    if (project) {
+      await lms.setProject({
+        learner_id: id,
+        title: project.title,
+        stakeholder: project.stakeholder,
+        problem: project.problem,
+        success_metric: project.success_metric,
+        status: "deployed"
+      });
+    } else {
+      await lms.setProject({
+        learner_id: id,
+        title: "One Solution Capstone",
+        stakeholder: "D2D Stakeholder",
+        problem: "Not scoped",
+        success_metric: "Deployment verified",
+        status: "deployed"
+      });
+    }
+    return { ok: true, status: "deployed" };
   });
 
   app.get("/api/config/frameworks", async () => frameworks.versions);
@@ -1000,6 +1056,7 @@ async function main() {
     const normalized = normalizePhone(from);
     const learnerId = normalized ? `lrn-${normalized}` : from;
     dailyLoop.touch(learnerId);
+    await signups.update(learnerId, { last_active_at: new Date().toISOString() }).catch(() => {});
 
     // A document (CV / Aadhaar) goes to the Onboarding agent, not the lesson walker.
     // Deliberately no URL or filename in the log line — it's an identity document.

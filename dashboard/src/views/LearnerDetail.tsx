@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, fmtTime } from "../api";
-import { Panel } from "../components";
-import type { LearnerMeasurement } from "../types";
+import { api, fmtTime, fmtUsd } from "../api";
+import { Panel, StatusPill, VerdictPill } from "../components";
+import type { LearnerMeasurement, AgentTransaction } from "../types";
 
 /** One learner's measurement: composite breakdown, mastery per competency, integrity, evidence. */
 export default function LearnerDetail() {
   const { id } = useParams<{ id: string }>();
   const [m, setM] = useState<LearnerMeasurement | null>(null);
+  const [txs, setTxs] = useState<AgentTransaction[]>([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
 
-  const load = () => { if (id) api.learner(id).then(setM).catch((e) => setErr(String(e))); };
+  const load = () => {
+    if (id) {
+      api.learner(id).then(setM).catch((e) => setErr(String(e)));
+      api.transactions({ subject: id }).then(setTxs).catch(() => setTxs([]));
+    }
+  };
   useEffect(load, [id]);
 
   const decide = async (competency: string, decision: "cleared" | "upheld") => {
@@ -103,6 +109,39 @@ export default function LearnerDetail() {
             ))}
           </tbody>
         </table>
+      </Panel>
+
+      <Panel title={`Agent Transactions (${txs.length})`}>
+        {txs.length === 0 ? (
+          <div className="sub">No agent transactions recorded for this learner.</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Transaction ID</th>
+                <th>Agent</th>
+                <th>Plan / Step</th>
+                <th>Status</th>
+                <th>Critique</th>
+                <th className="num">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {txs.map((t) => (
+                <tr key={t.transaction_id} className="row" onClick={() => window.open(`/transactions/${t.transaction_id}`, '_blank')}>
+                  <td className="mono">{fmtTime(t.timestamp)}</td>
+                  <td className="mono">{t.transaction_id}</td>
+                  <td>{t.agent.name}</td>
+                  <td className="mono">{t.plan_ref.plan_id} / {t.plan_ref.step_id}</td>
+                  <td><StatusPill status={t.status} /></td>
+                  <td><VerdictPill verdict={t.critique.verdict} /></td>
+                  <td className="num">{fmtUsd(t.cost.total_usd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </Panel>
 
       <Panel title={`Evidence log (${m.evidence.length})`}>
